@@ -36,10 +36,14 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef INCLUDE_BESTHEA_BESTHEA_CUDA_H_
 #define INCLUDE_BESTHEA_BESTHEA_CUDA_H_
 
+#if defined(BESTHEA_USE_METAL)
+#include "besthea/besthea_metal.h"
+#else
 #ifndef BESTHEA_USE_CUDA
 #define BESTHEA_USE_CUDA
 #endif
 
 #include "besthea/besthea.h"
+#endif
 
 #endif /* INCLUDE_BESTHEA_BESTHEA_CUDA_H_ */

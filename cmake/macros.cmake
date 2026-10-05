@@ -251,3 +251,48 @@ macro(setup_CUDA)
     message(STATUS "CUDA disabled")
   endif()
 endmacro()
+
+macro(setup_METAL)
+  string(TOUPPER "${BESTHEA_METAL}" BESTHEA_METAL)
+  if(NOT (
+    "${BESTHEA_METAL}" STREQUAL "ENABLE" OR
+    "${BESTHEA_METAL}" STREQUAL "AUTO" OR
+    "${BESTHEA_METAL}" STREQUAL "DISABLE")
+    )
+    set(BESTHEA_METAL "AUTO")
+  endif()
+
+  set(BESTHEA_USE_METAL OFF)
+
+  if(APPLE AND NOT "${BESTHEA_METAL}" STREQUAL "DISABLE")
+    find_library(METAL_LIBRARY Metal)
+    find_library(FOUNDATION_LIBRARY Foundation)
+    execute_process(
+      COMMAND xcrun -sdk macosx -find metal
+      OUTPUT_VARIABLE METAL_COMPILER
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE METAL_RES
+    )
+    execute_process(
+      COMMAND xcrun -sdk macosx -find metallib
+      OUTPUT_VARIABLE METALLIB_COMPILER
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE METALLIB_RES
+    )
+
+    if(METAL_LIBRARY AND FOUNDATION_LIBRARY AND METAL_RES EQUAL 0 AND METALLIB_RES EQUAL 0)
+      set(BESTHEA_USE_METAL ON)
+      message(STATUS "Apple Metal GPU backend enabled (to disable, set BESTHEA_METAL=disable)")
+      message(STATUS "  Metal Compiler: ${METAL_COMPILER}")
+      message(STATUS "  MetalLib Tool: ${METALLIB_COMPILER}")
+    else()
+      if("${BESTHEA_METAL}" STREQUAL "ENABLE")
+        message(FATAL_ERROR "Apple Metal or Xcode metal toolchain not found")
+      else()
+        message(STATUS "Apple Metal not found, Metal backend disabled")
+      endif()
+    endif()
+  else()
+    message(STATUS "Apple Metal disabled")
+  endif()
+endmacro()

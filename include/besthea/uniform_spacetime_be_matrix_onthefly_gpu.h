@@ -184,6 +184,9 @@ class besthea::bem::onthefly::uniform_spacetime_be_matrix_onthefly_gpu
     load_distr;                //!< Object handling CPU-GPU load distribution
   bool loadbalancing_use_cpu;  //!< Indicates wheather to use CPU for fully
                                //!< regular component
+#if defined(BESTHEA_USE_METAL)
+  mutable std::vector< void * > mtl_command_buffers;
+#endif
 };
 
 #endif /* INCLUDE_BESTHEA_UNIFORM_SPACETIME_BE_MATRIX_ONTHEFLY_GPU_H_ */

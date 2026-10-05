@@ -70,7 +70,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "besthea/uniform_spacetime_initial_assembler.h"
 #include "besthea/uniform_spacetime_initial_evaluator.h"
 
-#ifdef BESTHEA_USE_CUDA
+#if defined(BESTHEA_USE_CUDA) || defined(BESTHEA_USE_METAL)
 #include "besthea/uniform_spacetime_be_matrix_onthefly_gpu.h"
 #endif
 

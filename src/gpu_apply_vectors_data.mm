@@ -1,12 +1,12 @@
-#include "besthea/gpu_apply_vectors_data.h"
-
-#include "besthea/gpu_onthefly_helpers.h"
-
 #ifdef BESTHEA_USE_METAL
 #import <Metal/Metal.h>
+#import <Foundation/Foundation.h>
 #else
 #include <cuda_runtime.h>
 #endif
+
+#include "besthea/gpu_apply_vectors_data.h"
+#include "besthea/gpu_onthefly_helpers.h"
 
 besthea::bem::onthefly::gpu_apply_vectors_data::gpu_apply_vectors_data( )
   : h_x( nullptr ) {
@@ -97,11 +97,13 @@ void besthea::bem::onthefly::gpu_apply_vectors_data::free( ) {
     }
     if ( mtl_buffer_x[ i ] != nullptr ) {
       id<MTLBuffer> buf_x = (__bridge_transfer id<MTLBuffer>)mtl_buffer_x[ i ];
+      (void)buf_x;
       buf_x = nil;
       mtl_buffer_x[ i ] = nullptr;
     }
     if ( mtl_buffer_y[ i ] != nullptr ) {
       id<MTLBuffer> buf_y = (__bridge_transfer id<MTLBuffer>)mtl_buffer_y[ i ];
+      (void)buf_y;
       buf_y = nil;
       mtl_buffer_y[ i ] = nullptr;
     }

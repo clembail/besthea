@@ -12,9 +12,15 @@ set(BESTHEA_CUDA_OPTION_DESCRIPTION "Also build besthea_cuda to enable "
 set(BESTHEA_CUDA "AUTO" CACHE STRING "${BESTHEA_CUDA_OPTION_DESCRIPTION}")
 set_property(CACHE BESTHEA_CUDA PROPERTY STRINGS "AUTO" "ENABLE" "DISABLE")
 
+set(BESTHEA_METAL_OPTION_DESCRIPTION "Build besthea_metal to enable "
+  "Apple Metal GPU accelerated functionality of besthea")
+set(BESTHEA_METAL "AUTO" CACHE STRING "${BESTHEA_METAL_OPTION_DESCRIPTION}")
+set_property(CACHE BESTHEA_METAL PROPERTY STRINGS "AUTO" "ENABLE" "DISABLE")
+
 check_insource()
 setup_compiler()
 setup_CUDA()
+setup_METAL()
 
 enable_filesystem()
 enable_MKL()
@@ -239,6 +245,9 @@ target_link_libraries(besthea PUBLIC
 target_compile_definitions(besthea PUBLIC
   MKL_INT=long
   BESTHEA_SIMD_WIDTH=${BESTHEA_SIMD_WIDTH})
+if(BESTHEA_USE_METAL)
+  target_compile_definitions(besthea PUBLIC BESTHEA_USE_METAL)
+endif()
 
 if(BESTHEA_USE_CUDA)
   set(besthea_cuda_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -265,6 +274,78 @@ if(BESTHEA_USE_CUDA)
     BESTHEA_USE_CUDA)
 endif()
 
+if(BESTHEA_USE_METAL)
+  enable_language(OBJCXX)
+
+  set(besthea_metal_INCLUDES
+    include/besthea/besthea_metal.h
+    include/besthea/gpu_apply_load_distribution.h
+    include/besthea/gpu_apply_timer_collection.h
+    include/besthea/gpu_apply_vectors_data.h
+    include/besthea/gpu_onthefly_helpers.h
+    include/besthea/timer_cuda.h
+    include/besthea/timer_metal.h
+    include/besthea/uniform_spacetime_be_matrix_onthefly_gpu.h
+    include/besthea/uniform_spacetime_tensor_mesh_gpu.h
+  )
+
+  set(besthea_metal_SOURCES
+    src/gpu_apply_load_distribution.cpp
+    src/gpu_apply_timer_collection.cpp
+    src/gpu_apply_vectors_data.mm
+    src/gpu_onthefly_helpers.cpp
+    src/uniform_spacetime_tensor_mesh_gpu.mm
+    src/uniform_spacetime_be_matrix_onthefly_gpu.mm
+  )
+
+  set_source_files_properties(
+    src/gpu_apply_vectors_data.mm
+    src/uniform_spacetime_tensor_mesh_gpu.mm
+    src/uniform_spacetime_be_matrix_onthefly_gpu.mm
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc"
+  )
+
+  set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/uniform_spacetime_be_matrix_onthefly_metal.metal")
+  set(SHADER_AIR "${CMAKE_CURRENT_BINARY_DIR}/besthea_shaders.air")
+  set(SHADER_METALLIB "${CMAKE_CURRENT_BINARY_DIR}/besthea_shaders.metallib")
+
+  add_custom_command(
+    OUTPUT ${SHADER_METALLIB}
+    COMMAND ${METAL_COMPILER} -std=metal3.0 -c ${SHADER_SRC} -o ${SHADER_AIR}
+    COMMAND ${METALLIB_COMPILER} ${SHADER_AIR} -o ${SHADER_METALLIB}
+    DEPENDS ${SHADER_SRC}
+    COMMENT "Compiling Metal compute shaders to ${SHADER_METALLIB}"
+  )
+
+  add_custom_target(besthea_shaders ALL DEPENDS ${SHADER_METALLIB})
+
+  set(besthea_metal_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  add_library(besthea_metal STATIC ${besthea_metal_SOURCES})
+  add_dependencies(besthea_metal besthea_shaders)
+  target_include_directories(besthea_metal PUBLIC
+    ${besthea_metal_INCLUDE_DIRS}
+    ${besthea_INCLUDE_DIRS})
+  target_include_directories(besthea_metal SYSTEM PUBLIC
+    ${Boost_INCLUDE_DIRS}
+    ${Eigen_INCLUDE_DIRS}
+    ${Lyra_INCLUDE_DIRS}
+    ${MKL_INCLUDE_DIRS}
+    ${MPI_INCLUDE_DIRS})
+  target_link_libraries(besthea_metal PUBLIC
+    ${STDFS_LIBRARIES}
+    ${MKL_LIBRARIES}
+    ${MPI_CXX_LIBRARIES}
+    "-framework Metal"
+    "-framework Foundation"
+    besthea)
+  target_compile_definitions(besthea_metal PUBLIC
+    MKL_INT=long
+    BESTHEA_SIMD_WIDTH=${BESTHEA_SIMD_WIDTH}
+    BESTHEA_USE_METAL)
+
+  add_library(besthea_cuda ALIAS besthea_metal)
+endif()
+
 install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}
   )
@@ -277,6 +358,16 @@ if(BESTHEA_USE_CUDA)
     )
   install(FILES ${besthea_cuda_INCLUDES}
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME})
+endif()
+
+if(BESTHEA_USE_METAL)
+  install(TARGETS besthea_metal
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}
+    )
+  install(FILES ${besthea_metal_INCLUDES}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME})
+  install(FILES ${SHADER_METALLIB}
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME})
 endif()
 
 option(BUILD_EXAMPLES "Build examples using the library" ON)

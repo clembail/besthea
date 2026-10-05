@@ -1,12 +1,12 @@
-#include "besthea/uniform_spacetime_tensor_mesh_gpu.h"
-
-#include "besthea/gpu_onthefly_helpers.h"
-
 #ifdef BESTHEA_USE_METAL
 #import <Metal/Metal.h>
+#import <Foundation/Foundation.h>
 #else
 #include <cuda_runtime.h>
 #endif
+
+#include "besthea/uniform_spacetime_tensor_mesh_gpu.h"
+#include "besthea/gpu_onthefly_helpers.h"
 #include <exception>
 #include <iostream>
 
@@ -149,21 +149,25 @@ void besthea::mesh::uniform_spacetime_tensor_mesh_gpu::free( ) {
     mesh_raw_data & curr_gpu_data = per_gpu_data[ gpu_idx ];
     if ( curr_gpu_data.mtl_buf_areas != nullptr ) {
       id<MTLBuffer> b = (__bridge_transfer id<MTLBuffer>)curr_gpu_data.mtl_buf_areas;
+      (void)b;
       b = nil;
       curr_gpu_data.mtl_buf_areas = nullptr;
     }
     if ( curr_gpu_data.mtl_buf_coords != nullptr ) {
       id<MTLBuffer> b = (__bridge_transfer id<MTLBuffer>)curr_gpu_data.mtl_buf_coords;
+      (void)b;
       b = nil;
       curr_gpu_data.mtl_buf_coords = nullptr;
     }
     if ( curr_gpu_data.mtl_buf_nodes != nullptr ) {
       id<MTLBuffer> b = (__bridge_transfer id<MTLBuffer>)curr_gpu_data.mtl_buf_nodes;
+      (void)b;
       b = nil;
       curr_gpu_data.mtl_buf_nodes = nullptr;
     }
     if ( curr_gpu_data.mtl_buf_normals != nullptr ) {
       id<MTLBuffer> b = (__bridge_transfer id<MTLBuffer>)curr_gpu_data.mtl_buf_normals;
+      (void)b;
       b = nil;
       curr_gpu_data.mtl_buf_normals = nullptr;
     }
