@@ -36,6 +36,7 @@ macro(setup_compiler)
     # Clang cannot vectorise complicated loops
     add_compile_options(-Wno-pass-failed)
     add_compile_options(-Wno-dtor-name)
+    add_compile_options(-Wno-deprecated-declarations)
 
   elseif (CMAKE_CXX_COMPILER_ID MATCHES Clang
     AND NOT CMAKE_CXX_COMPILER_ID MATCHES AppleClang)
@@ -49,6 +50,7 @@ macro(setup_compiler)
     add_compile_options(-Wall -Wextra -pedantic-errors)
     # Clang cannot vectorise complicated loops
     add_compile_options(-Wno-pass-failed)
+    add_compile_options(-Wno-deprecated-declarations)
     #add_compile_options(
     #  -Rpass="vect" -Rpass-missed="vect" -Rpass-analysis="vect")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 11)

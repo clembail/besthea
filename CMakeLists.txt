@@ -222,6 +222,9 @@ message(STATUS "Setting BESTHEA_SIMD_WIDTH to ${BESTHEA_SIMD_WIDTH}")
 
 set(besthea_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_library(besthea STATIC ${besthea_SOURCES})
+if(MKL_SOURCES)
+  target_sources(besthea PRIVATE ${MKL_SOURCES})
+endif()
 target_include_directories(besthea PUBLIC ${besthea_INCLUDE_DIRS})
 target_include_directories(besthea SYSTEM PUBLIC
   ${Boost_INCLUDE_DIRS}

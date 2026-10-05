@@ -18,7 +18,7 @@
 *.proc_assign
 *.tree_vec
 lib
-build
+build*
 doc/html
 test/ensight
 test/ensight_surface

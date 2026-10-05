@@ -39,7 +39,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "besthea/settings.h"
 
 #include <iostream>
-#include <math.h>
+#include <cmath>
 #include <mkl.h>
 #include <vector>
 

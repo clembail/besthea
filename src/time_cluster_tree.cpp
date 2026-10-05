@@ -31,7 +31,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "besthea/time_cluster_tree.h"
 
 #include <algorithm>
-#include <math.h>
+#include <cmath>
 #include <unordered_map>
 
 besthea::mesh::time_cluster_tree::time_cluster_tree(

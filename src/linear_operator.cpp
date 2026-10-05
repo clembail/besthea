@@ -30,7 +30,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "besthea/linear_operator.h"
 
-#include <math.h>
+#include <cmath>
 #include <mkl_rci.h>
 #include <vector>
 

@@ -162,7 +162,7 @@ void besthea::linear_algebra::full_matrix::lu_decompose_solve(
   char lapacke_trans = trans ? 'T' : 'N';
   lo ipiv_size = _n_rows < _n_columns ? _n_rows : _n_columns;
 
-  lo * ipiv = new lo[ ipiv_size ];
+  lapack_int * ipiv = new lapack_int[ ipiv_size ];
   LAPACKE_dgetrf(
     LAPACK_COL_MAJOR, _n_rows, _n_columns, _data.data( ), _n_rows, ipiv );
   LAPACKE_dgetrs( LAPACK_COL_MAJOR, lapacke_trans, _n_rows, n_rhs,

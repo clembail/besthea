@@ -33,7 +33,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "besthea/chebyshev_evaluator.h"
 #include "besthea/vector.h"
 
-#include <math.h>
+#include <cmath>
 
 using besthea::linear_algebra::vector;
 
