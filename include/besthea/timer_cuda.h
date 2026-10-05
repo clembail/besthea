@@ -38,6 +38,16 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "besthea/gpu_onthefly_helpers.h"
 #include "besthea/settings.h"
 
+#ifdef BESTHEA_USE_METAL
+#include "besthea/timer_metal.h"
+
+namespace besthea {
+  namespace tools {
+    using timer_cuda = timer_metal;
+  }
+}
+#else
+
 #include <cuda_runtime.h>
 #include <iostream>
 
@@ -158,5 +168,6 @@ class besthea::tools::timer_cuda {
     was_time_collected;  //!< True if the stop event has been synchronized with.
   bool was_inited;  //!< True if init method has been called on this instance
 };
+#endif  // BESTHEA_USE_METAL
 
 #endif /* INCLUDE_BESTHEA_TIMER_CUDA_H_ */
