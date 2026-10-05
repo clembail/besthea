@@ -125,8 +125,11 @@ class MetalContext {
 
     std::vector<std::string> search_paths = {
       bin_dir + "/besthea_shaders.metallib",
+      bin_dir + "/../besthea_shaders.metallib",
+      bin_dir + "/../../besthea_shaders.metallib",
       bin_dir + "/../lib/besthea/besthea_shaders.metallib",
       "./besthea_shaders.metallib",
+      "./build/besthea_shaders.metallib",
       "besthea_shaders.metallib"
     };
 
@@ -329,7 +332,8 @@ init_gpu_data() {
     this->get_dim_domain(), this->get_block_dim(),
     this->get_block_dim(), this->get_dim_range());
 
-  lo gpu_chunk_size = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>::get_tpb(this->_order_regular);
+  // For version 2, each threadgroup handles 1 test element, so chunk size is 1
+  lo gpu_chunk_size = 1;
 
   this->load_distr = new gpu_apply_load_distribution(
     n_gpus, gpu_mesh->get_metadata().n_elems,

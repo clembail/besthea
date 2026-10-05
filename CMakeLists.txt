@@ -241,7 +241,8 @@ target_include_directories(besthea SYSTEM PUBLIC
 target_link_libraries(besthea PUBLIC
   ${STDFS_LIBRARIES}
   ${MKL_LIBRARIES}
-  ${MPI_CXX_LIBRARIES})
+  ${MPI_CXX_LIBRARIES}
+  ${OpenMP_CXX_LIBRARIES})
 target_compile_definitions(besthea PUBLIC
   MKL_INT=long
   BESTHEA_SIMD_WIDTH=${BESTHEA_SIMD_WIDTH})

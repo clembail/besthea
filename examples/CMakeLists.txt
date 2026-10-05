@@ -3,6 +3,9 @@ add_subdirectory(fast_dirichlet_ibvp)
 add_subdirectory(solve_ibvp_rapidly_changing_data)
 add_subdirectory(uniform_tensor_dirichlet)
 add_subdirectory(uniform_tensor_neumann)
+if(BESTHEA_USE_METAL)
+  add_subdirectory(metal_onthefly_test)
+endif()
 
 install(FILES
   mesh_files/cube_192.txt
