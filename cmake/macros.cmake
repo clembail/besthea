@@ -153,10 +153,35 @@ macro(enable_filesystem)
 endmacro()
 
 macro(enable_OpenMP)
+  if(APPLE)
+    # On macOS, OpenBLAS is linked against Homebrew's libomp (/opt/homebrew/opt/libomp/lib/libomp.dylib).
+    # If LLVM Clang's internal libomp is also linked, dyld loads both copies and triggers:
+    # "OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized."
+    # We must ensure the linker prioritizes Homebrew's libomp and strips any LLVM libomp search path.
+    find_path(BREW_LIBOMP_DIR NAMES libomp.dylib PATHS /opt/homebrew/opt/libomp/lib /opt/homebrew/lib NO_DEFAULT_PATH)
+    if(BREW_LIBOMP_DIR)
+      string(REPLACE "-L/opt/homebrew/opt/llvm/lib" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+      string(REPLACE "-L/opt/homebrew/opt/llvm/lib" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+      string(REPLACE "-L/opt/homebrew/opt/llvm/lib" "" CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS}")
+      set(CMAKE_EXE_LINKER_FLAGS "-L${BREW_LIBOMP_DIR} ${CMAKE_EXE_LINKER_FLAGS}" CACHE STRING "Linker flags" FORCE)
+      set(CMAKE_SHARED_LINKER_FLAGS "-L${BREW_LIBOMP_DIR} ${CMAKE_SHARED_LINKER_FLAGS}" CACHE STRING "Linker flags" FORCE)
+      set(CMAKE_MODULE_LINKER_FLAGS "-L${BREW_LIBOMP_DIR} ${CMAKE_MODULE_LINKER_FLAGS}" CACHE STRING "Linker flags" FORCE)
+
+      link_directories(BEFORE ${BREW_LIBOMP_DIR})
+      add_link_options(-L${BREW_LIBOMP_DIR})
+      set(OpenMP_omp_LIBRARY "${BREW_LIBOMP_DIR}/libomp.dylib" CACHE FILEPATH "OpenMP library" FORCE)
+      set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "OpenMP lib names" FORCE)
+    endif()
+  endif()
+
   find_package(OpenMP)
   if(OpenMP_CXX_FOUND)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    if(APPLE AND BREW_LIBOMP_DIR)
+      set(OpenMP_CXX_LIBRARIES "${BREW_LIBOMP_DIR}/libomp.dylib")
+      set(OpenMP_C_LIBRARIES "${BREW_LIBOMP_DIR}/libomp.dylib")
+    endif()
   else()
     if (CMAKE_CXX_COMPILER_ID MATCHES GNU)
       add_compile_options(-fopenmp)
