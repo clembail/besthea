@@ -47,6 +47,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "besthea/uniform_spacetime_be_space.h"
 
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -68,12 +69,13 @@ static quadrature_reference_raw_float<4> g_metal_quadr_ref_4;
 static quadrature_reference_raw_float<2> g_metal_quadr_ref_2;
 static quadrature_reference_raw_float<1> g_metal_quadr_ref_1;
 
-// Metadata struct matching Metal shader layout
+// Metadata struct matching Metal shader layout (32-bit indices to keep the
+// device-side index arithmetic and buffer traffic cheap on Apple GPUs).
 struct mesh_raw_metadata_float {
   float timestep;
-  long n_temporal_elements;
-  long n_elems;
-  long n_nodes;
+  int32_t n_temporal_elements;
+  int32_t n_elems;
+  int32_t n_nodes;
 };
 
 // ----------------------------------------------------------------------------
@@ -174,6 +176,7 @@ class MetalContext {
         if (source_code != nil) {
           MTLCompileOptions * options = [[MTLCompileOptions alloc] init];
           options.languageVersion = MTLLanguageVersion3_0;
+          options.fastMathEnabled = YES;
           library = [device newLibraryWithSource:source_code options:options error:&error];
           if (library != nil) {
             if (besthea::settings::output_verbosity.warnings >= 1) {
@@ -366,6 +369,13 @@ init_gpu_data() {
       }
       break;
   }
+
+  // Warm up the Metal library and compute pipeline so that the first apply()
+  // does not pay the (one-time) shader compilation / pipeline creation cost.
+  const std::string kernel_name
+    = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>::
+      get_name(this->_order_regular);
+  MetalContext::get().get_pipeline(kernel_name);
 }
 
 template<class kernel_type, class test_space_type, class trial_space_type>
@@ -514,7 +524,8 @@ apply_gpu_treg_sreg_begin(const block_vector_type & x,
 
     // Copy double h_x to float d_x_float buffer
     float * dx_f = vectors_data.d_x_float[gpu_idx];
-    for (size_t i = 0; i < total_x; ++i) {
+#pragma omp parallel for
+    for ( lo i = 0; i < (lo)total_x; ++i ) {
       dx_f[i] = (float)vectors_data.h_x[i];
     }
     // Zero out d_y_float buffer
@@ -527,9 +538,9 @@ apply_gpu_treg_sreg_begin(const block_vector_type & x,
   const auto & mesh_meta = gpu_mesh->get_metadata();
   mesh_raw_metadata_float meta_f;
   meta_f.timestep = (float)mesh_meta.timestep;
-  meta_f.n_temporal_elements = mesh_meta.n_temporal_elements;
-  meta_f.n_elems = mesh_meta.n_elems;
-  meta_f.n_nodes = mesh_meta.n_nodes;
+  meta_f.n_temporal_elements = (int32_t)mesh_meta.n_temporal_elements;
+  meta_f.n_elems = (int32_t)mesh_meta.n_elems;
+  meta_f.n_nodes = (int32_t)mesh_meta.n_nodes;
 
   heat_kernel_parameters_float kp((float)this->_kernel->get_alpha());
   float alpha_f = (float)alpha;
@@ -559,14 +570,14 @@ apply_gpu_treg_sreg_begin(const block_vector_type & x,
       [encoder setBuffer:buf_x offset:0 atIndex:0];
       [encoder setBuffer:buf_y offset:0 atIndex:1];
 
-      long ld_x_val = vectors_data.ld_x[gpu_idx];
-      long ld_y_val = vectors_data.ld_y[gpu_idx];
-      [encoder setBytes:&ld_x_val length:sizeof(long) atIndex:2];
-      [encoder setBytes:&ld_y_val length:sizeof(long) atIndex:3];
+      int32_t ld_x_val = (int32_t)vectors_data.ld_x[gpu_idx];
+      int32_t ld_y_val = (int32_t)vectors_data.ld_y[gpu_idx];
+      [encoder setBytes:&ld_x_val length:sizeof(int32_t) atIndex:2];
+      [encoder setBytes:&ld_y_val length:sizeof(int32_t) atIndex:3];
       [encoder setBytes:&alpha_f length:sizeof(float) atIndex:4];
 
-      long i_tst_begin_val = gpu_tst_elem_begin;
-      [encoder setBytes:&i_tst_begin_val length:sizeof(long) atIndex:5];
+      int32_t i_tst_begin_val = (int32_t)gpu_tst_elem_begin;
+      [encoder setBytes:&i_tst_begin_val length:sizeof(int32_t) atIndex:5];
       [encoder setBytes:&meta_f length:sizeof(meta_f) atIndex:6];
 
       const auto & per_gpu_mesh = gpu_mesh->get_per_gpu_data()[gpu_idx];
@@ -627,7 +638,8 @@ apply_gpu_treg_sreg_finalize(block_vector_type & y) const {
     // Convert float d_y_float back to double h_y
     float * dy_f = vectors_data.d_y_float[gpu_idx];
     sc * hy = vectors_data.h_y[gpu_idx];
-    for (size_t i = 0; i < total_y; ++i) {
+#pragma omp parallel for
+    for ( lo i = 0; i < (lo)total_y; ++i ) {
       hy[i] = (sc)dy_f[i];
     }
   }

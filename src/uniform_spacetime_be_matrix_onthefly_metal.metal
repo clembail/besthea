@@ -37,9 +37,9 @@ struct heat_kernel_parameters_float {
 
 struct mesh_raw_metadata_float {
     float timestep;
-    long n_temporal_elements;
-    long n_elems;
-    long n_nodes;
+    int n_temporal_elements;
+    int n_elems;
+    int n_nodes;
 };
 
 inline float metal_erf(float x) {
@@ -53,15 +53,15 @@ inline float metal_erf(float x) {
 
 template<int quadr_order>
 inline void d_triangles_to_geometry_000_tst_shmem(
-    long i_tst,
-    device const long * d_element_nodes,
+    int i_tst,
+    device const int * d_element_nodes,
     device const float * d_node_coords,
     threadgroup quadrature_nodes_raw_float<quadr_order> & shmem_quadr_nodes_tst,
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     uint tid,
     uint block_dim_x)
 {
-    device const long * tst_elem_nodes = d_element_nodes + 3 * i_tst;
+    device const int * tst_elem_nodes = d_element_nodes + 3 * i_tst;
 
     device const float * x1 = d_node_coords + 3 * tst_elem_nodes[0];
     device const float * x2 = d_node_coords + 3 * tst_elem_nodes[1];
@@ -86,13 +86,13 @@ inline void d_triangles_to_geometry_000_tst_shmem(
 
 template<int quadr_order>
 inline void d_triangles_to_geometry_000_trl(
-    long i_trl,
-    device const long * d_element_nodes,
+    int i_trl,
+    device const int * d_element_nodes,
     device const float * d_node_coords,
     thread quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref)
 {
-    device const long * trl_elem_nodes = d_element_nodes + 3 * i_trl;
+    device const int * trl_elem_nodes = d_element_nodes + 3 * i_trl;
 
     device const float * y1 = d_node_coords + 3 * trl_elem_nodes[0];
     device const float * y2 = d_node_coords + 3 * trl_elem_nodes[1];
@@ -205,11 +205,11 @@ inline void d_hs_kernel_do_anti_tau_anti_t_and_anti_t_regular_in_time_regular_in
 }
 
 inline void d_basis_tri_p1_evaluate_curl_00(
-    long i_elem, device const float * n, bool swap, thread float * curls,
-    device const long * d_element_nodes,
+    int i_elem, device const float * n, bool swap, thread float * curls,
+    device const int * d_element_nodes,
     device const float * d_node_coords)
 {
-    device const long * elem_nodes = d_element_nodes + 3 * i_elem;
+    device const int * elem_nodes = d_element_nodes + 3 * i_elem;
     device const float * x1rot = d_node_coords + 3 * elem_nodes[0];
     device const float * x2rot = d_node_coords + 3 * elem_nodes[1];
     device const float * x3rot = d_node_coords + 3 * elem_nodes[2];
@@ -249,7 +249,7 @@ inline void d_basis_tri_p1_evaluate_curl_00(
 template<int quadr_order>
 inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
     thread float * values_out,
-    long delta, long i_test, long i_trial,
+    int delta, int i_test, int i_trial,
     threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
     thread const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
     constant mesh_raw_metadata_float & mesh_metadata,
@@ -283,7 +283,7 @@ inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
 template<int quadr_order>
 inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
     thread float * values_out,
-    long delta, long i_test, long i_trial,
+    int delta, int i_test, int i_trial,
     threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
     thread const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
     constant mesh_raw_metadata_float & mesh_metadata,
@@ -331,7 +331,7 @@ inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
 template<int quadr_order>
 inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
     thread float * values_out,
-    long delta, long i_test, long i_trial,
+    int delta, int i_test, int i_trial,
     threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
     thread const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
     constant mesh_raw_metadata_float & mesh_metadata,
@@ -379,12 +379,12 @@ inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
 template<int quadr_order>
 inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
     thread float * values_out,
-    long delta, long i_test, long i_trial,
+    int delta, int i_test, int i_trial,
     threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
     thread const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
     constant mesh_raw_metadata_float & mesh_metadata,
     device const float * d_element_areas,
-    device const long * d_element_nodes,
+    device const int * d_element_nodes,
     device const float * d_node_coords,
     device const float * d_element_normals,
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
@@ -409,15 +409,15 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
     float trial_curls[9];
     float phi1x, phi1y;
     float kern1, kern2;
-    long test_curl_offset, trial_curl_offset;
+    int test_curl_offset, trial_curl_offset;
     float curl_dot[9];
 
     d_basis_tri_p1_evaluate_curl_00(i_test, nx, false, test_curls, d_element_nodes, d_node_coords);
     d_basis_tri_p1_evaluate_curl_00(i_trial, ny, true, trial_curls, d_element_nodes, d_node_coords);
 
-    for (long i_loc_test = 0; i_loc_test < 3; ++i_loc_test) {
+    for (int i_loc_test = 0; i_loc_test < 3; ++i_loc_test) {
         test_curl_offset = 3 * i_loc_test;
-        for (long i_loc_trial = 0; i_loc_trial < 3; ++i_loc_trial) {
+        for (int i_loc_trial = 0; i_loc_trial < 3; ++i_loc_trial) {
             trial_curl_offset = 3 * i_loc_trial;
             curl_dot[i_loc_trial * 3 + i_loc_test]
                 = test_curls[test_curl_offset]     * trial_curls[trial_curl_offset]
@@ -426,7 +426,7 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
         }
     }
 
-    for (long j = 0; j < 9; j++) values_out[j] = 0.0f;
+    for (int j = 0; j < 9; j++) values_out[j] = 0.0f;
     thread float &value11 = values_out[0]; thread float &value12 = values_out[1]; thread float &value13 = values_out[2];
     thread float &value21 = values_out[3]; thread float &value22 = values_out[4]; thread float &value23 = values_out[5];
     thread float &value31 = values_out[6]; thread float &value32 = values_out[7]; thread float &value33 = values_out[8];
@@ -454,7 +454,7 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
     }
 
     float multiplier = test_area * trial_area;
-    for (long j = 0; j < 9; j++) values_out[j] *= multiplier;
+    for (int j = 0; j < 9; j++) values_out[j] *= multiplier;
 }
 
 // ----------------------------------------------------------------------------
@@ -465,14 +465,14 @@ template<int quadr_order, int tpbx>
 kernel void k_apply_ver2_sl_p0_p0(
     device const float * x_perm [[buffer(0)]],
     device float * y [[buffer(1)]],
-    constant long & ld_x_perm [[buffer(2)]],
-    constant long & ld_y [[buffer(3)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
     constant float & alpha [[buffer(4)]],
-    constant long & i_tst_begin [[buffer(5)]],
+    constant int & i_tst_begin [[buffer(5)]],
     constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
     device const float * d_element_areas [[buffer(7)]],
     device const float * d_node_coords [[buffer(8)]],
-    device const long * d_element_nodes [[buffer(9)]],
+    device const int * d_element_nodes [[buffer(9)]],
     device const float * d_element_normals [[buffer(10)]],
     constant heat_kernel_parameters_float & kp [[buffer(11)]],
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
@@ -483,10 +483,10 @@ kernel void k_apply_ver2_sl_p0_p0(
     threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst;
     threadgroup float shmem_matrix_vals[tpbx];
 
-    const long n_blocks = mesh_metadata.n_temporal_elements;
-    const long n_elems = mesh_metadata.n_elems;
-    const long i_tst = i_tst_begin + block_idx_x;
-    const long row = i_tst;
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + block_idx_x;
+    const int row = i_tst;
 
     d_triangles_to_geometry_000_tst_shmem<quadr_order>(i_tst, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst, quadr_ref, tid, block_dim_x);
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -497,18 +497,18 @@ kernel void k_apply_ver2_sl_p0_p0(
     float val_curr;
     float val_next;
 
-    for (long i = tid; i < n_elems; i += block_dim_x) {
+    for (int i = tid; i < n_elems; i += block_dim_x) {
         d_triangles_to_geometry_000_trl<quadr_order>(i, d_element_nodes, d_node_coords, quadr_nodes_trl, quadr_ref);
 
         val_curr = 0.0f;
         val_next = 0.0f;
 
-        long curr_active_threads =
+        int curr_active_threads =
           (i >= (n_elems / block_dim_x) * block_dim_x) ? (n_elems % block_dim_x) : block_dim_x;
 
-        for (long delta = 0; delta < n_blocks; delta++) {
+        for (int delta = 0; delta < n_blocks; delta++) {
             {
-                long i_trl = i;
+                int i_trl = i;
                 val_prev = val_curr;
                 val_curr = val_next;
                 d_get_local_contributions_treg_sreg_sl_p0_p0<quadr_order>(&val_next,
@@ -519,14 +519,14 @@ kernel void k_apply_ver2_sl_p0_p0(
             }
 
             {
-                long max_block = n_blocks - delta;
-                for (long block = tid; block < max_block; block += curr_active_threads) {
-                    long block_row = delta + block;
-                    long block_col = block;
+                int max_block = n_blocks - delta;
+                for (int block = tid; block < max_block; block += curr_active_threads) {
+                    int block_row = delta + block;
+                    int block_col = block;
                     float y_val = 0.0f;
-                    for (long j = 0; j < curr_active_threads; j++) {
-                        long i_trl = (i / block_dim_x) * block_dim_x + j;
-                        long col = i_trl;
+                    for (int j = 0; j < curr_active_threads; j++) {
+                        int i_trl = (i / block_dim_x) * block_dim_x + j;
+                        int col = i_trl;
                         float x_val = x_perm[block_col + ld_x_perm * col];
                         y_val += shmem_matrix_vals[j] * x_val;
                     }
@@ -543,14 +543,14 @@ template<int quadr_order, int tpbx>
 kernel void k_apply_ver2_dl_p0_p1(
     device const float * x_perm [[buffer(0)]],
     device float * y [[buffer(1)]],
-    constant long & ld_x_perm [[buffer(2)]],
-    constant long & ld_y [[buffer(3)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
     constant float & alpha [[buffer(4)]],
-    constant long & i_tst_begin [[buffer(5)]],
+    constant int & i_tst_begin [[buffer(5)]],
     constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
     device const float * d_element_areas [[buffer(7)]],
     device const float * d_node_coords [[buffer(8)]],
-    device const long * d_element_nodes [[buffer(9)]],
+    device const int * d_element_nodes [[buffer(9)]],
     device const float * d_element_normals [[buffer(10)]],
     constant heat_kernel_parameters_float & kp [[buffer(11)]],
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
@@ -561,10 +561,10 @@ kernel void k_apply_ver2_dl_p0_p1(
     threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst;
     threadgroup float shmem_matrix_vals[3][tpbx];
 
-    const long n_blocks = mesh_metadata.n_temporal_elements;
-    const long n_elems = mesh_metadata.n_elems;
-    const long i_tst = i_tst_begin + block_idx_x;
-    const long row = i_tst;
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + block_idx_x;
+    const int row = i_tst;
 
     d_triangles_to_geometry_000_tst_shmem<quadr_order>(i_tst, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst, quadr_ref, tid, block_dim_x);
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -575,18 +575,18 @@ kernel void k_apply_ver2_dl_p0_p1(
     float vals_curr[3];
     float vals_next[3];
 
-    for (long i = tid; i < n_elems; i += block_dim_x) {
+    for (int i = tid; i < n_elems; i += block_dim_x) {
         d_triangles_to_geometry_000_trl<quadr_order>(i, d_element_nodes, d_node_coords, quadr_nodes_trl, quadr_ref);
 
         vals_curr[0] = 0.0f; vals_curr[1] = 0.0f; vals_curr[2] = 0.0f;
         vals_next[0] = 0.0f; vals_next[1] = 0.0f; vals_next[2] = 0.0f;
 
-        long curr_active_threads =
+        int curr_active_threads =
           (i >= (n_elems / block_dim_x) * block_dim_x) ? (n_elems % block_dim_x) : block_dim_x;
 
-        for (long delta = 0; delta < n_blocks; delta++) {
+        for (int delta = 0; delta < n_blocks; delta++) {
             {
-                long i_trl = i;
+                int i_trl = i;
                 vals_prev[0] = vals_curr[0]; vals_prev[1] = vals_curr[1]; vals_prev[2] = vals_curr[2];
                 vals_curr[0] = vals_next[0]; vals_curr[1] = vals_next[1]; vals_curr[2] = vals_next[2];
                 d_get_local_contributions_treg_sreg_dl_p0_p1<quadr_order>(vals_next,
@@ -599,14 +599,14 @@ kernel void k_apply_ver2_dl_p0_p1(
             }
 
             {
-                long max_block = n_blocks - delta;
-                for (long block = tid; block < max_block; block += curr_active_threads) {
-                    long block_row = delta + block;
-                    long block_col = block;
+                int max_block = n_blocks - delta;
+                for (int block = tid; block < max_block; block += curr_active_threads) {
+                    int block_row = delta + block;
+                    int block_col = block;
                     float y_val = 0.0f;
-                    for (long j = 0; j < curr_active_threads; j++) {
-                        long i_trl = (i / block_dim_x) * block_dim_x + j;
-                        device const long * cols = d_element_nodes + 3 * i_trl;
+                    for (int j = 0; j < curr_active_threads; j++) {
+                        int i_trl = (i / block_dim_x) * block_dim_x + j;
+                        device const int * cols = d_element_nodes + 3 * i_trl;
                         y_val += shmem_matrix_vals[0][j] * x_perm[block_col + ld_x_perm * cols[0]];
                         y_val += shmem_matrix_vals[1][j] * x_perm[block_col + ld_x_perm * cols[1]];
                         y_val += shmem_matrix_vals[2][j] * x_perm[block_col + ld_x_perm * cols[2]];
@@ -624,14 +624,14 @@ template<int quadr_order, int tpbx>
 kernel void k_apply_ver2_adl_p1_p0(
     device const float * x_perm [[buffer(0)]],
     device float * y [[buffer(1)]],
-    constant long & ld_x_perm [[buffer(2)]],
-    constant long & ld_y [[buffer(3)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
     constant float & alpha [[buffer(4)]],
-    constant long & i_tst_begin [[buffer(5)]],
+    constant int & i_tst_begin [[buffer(5)]],
     constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
     device const float * d_element_areas [[buffer(7)]],
     device const float * d_node_coords [[buffer(8)]],
-    device const long * d_element_nodes [[buffer(9)]],
+    device const int * d_element_nodes [[buffer(9)]],
     device const float * d_element_normals [[buffer(10)]],
     constant heat_kernel_parameters_float & kp [[buffer(11)]],
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
@@ -642,10 +642,10 @@ kernel void k_apply_ver2_adl_p1_p0(
     threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst;
     threadgroup float shmem_matrix_vals[3][tpbx];
 
-    const long n_blocks = mesh_metadata.n_temporal_elements;
-    const long n_elems = mesh_metadata.n_elems;
-    const long i_tst = i_tst_begin + block_idx_x;
-    device const long * rows = d_element_nodes + 3 * i_tst;
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + block_idx_x;
+    device const int * rows = d_element_nodes + 3 * i_tst;
 
     d_triangles_to_geometry_000_tst_shmem<quadr_order>(i_tst, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst, quadr_ref, tid, block_dim_x);
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -656,18 +656,18 @@ kernel void k_apply_ver2_adl_p1_p0(
     float vals_curr[3];
     float vals_next[3];
 
-    for (long i = tid; i < n_elems; i += block_dim_x) {
+    for (int i = tid; i < n_elems; i += block_dim_x) {
         d_triangles_to_geometry_000_trl<quadr_order>(i, d_element_nodes, d_node_coords, quadr_nodes_trl, quadr_ref);
 
         vals_curr[0] = 0.0f; vals_curr[1] = 0.0f; vals_curr[2] = 0.0f;
         vals_next[0] = 0.0f; vals_next[1] = 0.0f; vals_next[2] = 0.0f;
 
-        long curr_active_threads =
+        int curr_active_threads =
           (i >= (n_elems / block_dim_x) * block_dim_x) ? (n_elems % block_dim_x) : block_dim_x;
 
-        for (long delta = 0; delta < n_blocks; delta++) {
+        for (int delta = 0; delta < n_blocks; delta++) {
             {
-                long i_trl = i;
+                int i_trl = i;
                 vals_prev[0] = vals_curr[0]; vals_prev[1] = vals_curr[1]; vals_prev[2] = vals_curr[2];
                 vals_curr[0] = vals_next[0]; vals_curr[1] = vals_next[1]; vals_curr[2] = vals_next[2];
                 d_get_local_contributions_treg_sreg_adl_p1_p0<quadr_order>(vals_next,
@@ -680,14 +680,14 @@ kernel void k_apply_ver2_adl_p1_p0(
             }
 
             {
-                long max_block = n_blocks - delta;
-                for (long block = tid; block < max_block; block += curr_active_threads) {
-                    long block_row = delta + block;
-                    long block_col = block;
+                int max_block = n_blocks - delta;
+                for (int block = tid; block < max_block; block += curr_active_threads) {
+                    int block_row = delta + block;
+                    int block_col = block;
                     float y_vals[3] = {0.0f, 0.0f, 0.0f};
-                    for (long j = 0; j < curr_active_threads; j++) {
-                        long i_trl = (i / block_dim_x) * block_dim_x + j;
-                        long col = i_trl;
+                    for (int j = 0; j < curr_active_threads; j++) {
+                        int i_trl = (i / block_dim_x) * block_dim_x + j;
+                        int col = i_trl;
                         float x_val = x_perm[block_col + ld_x_perm * col];
                         y_vals[0] += shmem_matrix_vals[0][j] * x_val;
                         y_vals[1] += shmem_matrix_vals[1][j] * x_val;
@@ -707,14 +707,14 @@ template<int quadr_order, int tpbx>
 kernel void k_apply_ver2_hs_p1_p1(
     device const float * x_perm [[buffer(0)]],
     device float * y [[buffer(1)]],
-    constant long & ld_x_perm [[buffer(2)]],
-    constant long & ld_y [[buffer(3)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
     constant float & alpha [[buffer(4)]],
-    constant long & i_tst_begin [[buffer(5)]],
+    constant int & i_tst_begin [[buffer(5)]],
     constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
     device const float * d_element_areas [[buffer(7)]],
     device const float * d_node_coords [[buffer(8)]],
-    device const long * d_element_nodes [[buffer(9)]],
+    device const int * d_element_nodes [[buffer(9)]],
     device const float * d_element_normals [[buffer(10)]],
     constant heat_kernel_parameters_float & kp [[buffer(11)]],
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
@@ -725,10 +725,10 @@ kernel void k_apply_ver2_hs_p1_p1(
     threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst;
     threadgroup float shmem_matrix_vals[9][tpbx];
 
-    const long n_blocks = mesh_metadata.n_temporal_elements;
-    const long n_elems = mesh_metadata.n_elems;
-    const long i_tst = i_tst_begin + block_idx_x;
-    device const long * rows = d_element_nodes + 3 * i_tst;
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + block_idx_x;
+    device const int * rows = d_element_nodes + 3 * i_tst;
 
     d_triangles_to_geometry_000_tst_shmem<quadr_order>(i_tst, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst, quadr_ref, tid, block_dim_x);
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -739,38 +739,38 @@ kernel void k_apply_ver2_hs_p1_p1(
     float vals_curr[9];
     float vals_next[9];
 
-    for (long i = tid; i < n_elems; i += block_dim_x) {
+    for (int i = tid; i < n_elems; i += block_dim_x) {
         d_triangles_to_geometry_000_trl<quadr_order>(i, d_element_nodes, d_node_coords, quadr_nodes_trl, quadr_ref);
 
-        for (long j = 0; j < 9; j++) vals_curr[j] = 0.0f;
-        for (long j = 0; j < 9; j++) vals_next[j] = 0.0f;
+        for (int j = 0; j < 9; j++) vals_curr[j] = 0.0f;
+        for (int j = 0; j < 9; j++) vals_next[j] = 0.0f;
 
-        long curr_active_threads =
+        int curr_active_threads =
           (i >= (n_elems / block_dim_x) * block_dim_x) ? (n_elems % block_dim_x) : block_dim_x;
 
-        for (long delta = 0; delta < n_blocks; delta++) {
+        for (int delta = 0; delta < n_blocks; delta++) {
             {
-                long i_trl = i;
-                for (long j = 0; j < 9; j++) vals_prev[j] = vals_curr[j];
-                for (long j = 0; j < 9; j++) vals_curr[j] = vals_next[j];
+                int i_trl = i;
+                for (int j = 0; j < 9; j++) vals_prev[j] = vals_curr[j];
+                for (int j = 0; j < 9; j++) vals_curr[j] = vals_next[j];
                 d_get_local_contributions_treg_sreg_hs_p1_p1<quadr_order>(vals_next,
                   delta + 1, i_tst, i_trl, shmem_quadr_nodes_tst, quadr_nodes_trl,
                   mesh_metadata, d_element_areas, d_element_nodes, d_node_coords, d_element_normals, quadr_ref, kp);
-                for (long j = 0; j < 9; j++) {
+                for (int j = 0; j < 9; j++) {
                     shmem_matrix_vals[j][tid] = ((i_tst == i_trl) ? 0.0f : (-vals_prev[j] + 2.0f * vals_curr[j] - vals_next[j]));
                 }
                 threadgroup_barrier(mem_flags::mem_threadgroup);
             }
 
             {
-                long max_block = n_blocks - delta;
-                for (long block = tid; block < max_block; block += curr_active_threads) {
-                    long block_row = delta + block;
-                    long block_col = block;
+                int max_block = n_blocks - delta;
+                for (int block = tid; block < max_block; block += curr_active_threads) {
+                    int block_row = delta + block;
+                    int block_col = block;
                     float y_vals[3] = {0.0f, 0.0f, 0.0f};
-                    for (long j = 0; j < curr_active_threads; j++) {
-                        long i_trl = (i / block_dim_x) * block_dim_x + j;
-                        device const long * cols = d_element_nodes + 3 * i_trl;
+                    for (int j = 0; j < curr_active_threads; j++) {
+                        int i_trl = (i / block_dim_x) * block_dim_x + j;
+                        device const int * cols = d_element_nodes + 3 * i_trl;
                         float x_vals[3];
                         x_vals[0] = x_perm[block_col + ld_x_perm * cols[0]];
                         x_vals[1] = x_perm[block_col + ld_x_perm * cols[1]];
@@ -797,100 +797,100 @@ kernel void k_apply_ver2_hs_p1_p1(
 
 // Single Layer (V)
 template [[host_name("k_apply_ver2_sl_p0_p0_qo5")]] kernel void k_apply_ver2_sl_p0_p0<5, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<5> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_sl_p0_p0_qo4")]] kernel void k_apply_ver2_sl_p0_p0<4, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<4> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_sl_p0_p0_qo2")]] kernel void k_apply_ver2_sl_p0_p0<2, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<2> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_sl_p0_p0_qo1")]] kernel void k_apply_ver2_sl_p0_p0<1, 64>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<1> &, uint, uint, uint);
 
 // Double Layer (K)
 template [[host_name("k_apply_ver2_dl_p0_p1_qo5")]] kernel void k_apply_ver2_dl_p0_p1<5, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<5> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_dl_p0_p1_qo4")]] kernel void k_apply_ver2_dl_p0_p1<4, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<4> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_dl_p0_p1_qo2")]] kernel void k_apply_ver2_dl_p0_p1<2, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<2> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_dl_p0_p1_qo1")]] kernel void k_apply_ver2_dl_p0_p1<1, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<1> &, uint, uint, uint);
 
 // Adjoint Double Layer (K')
 template [[host_name("k_apply_ver2_adl_p1_p0_qo5")]] kernel void k_apply_ver2_adl_p1_p0<5, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<5> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_adl_p1_p0_qo4")]] kernel void k_apply_ver2_adl_p1_p0<4, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<4> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_adl_p1_p0_qo2")]] kernel void k_apply_ver2_adl_p1_p0<2, 128>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<2> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_adl_p1_p0_qo1")]] kernel void k_apply_ver2_adl_p1_p0<1, 64>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<1> &, uint, uint, uint);
 
 // Hypersingular (D)
 template [[host_name("k_apply_ver2_hs_p1_p1_qo5")]] kernel void k_apply_ver2_hs_p1_p1<5, 64>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<5> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_hs_p1_p1_qo4")]] kernel void k_apply_ver2_hs_p1_p1<4, 64>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<4> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_hs_p1_p1_qo2")]] kernel void k_apply_ver2_hs_p1_p1<2, 64>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<2> &, uint, uint, uint);
 
 template [[host_name("k_apply_ver2_hs_p1_p1_qo1")]] kernel void k_apply_ver2_hs_p1_p1<1, 64>(
-    device const float *, device float *, constant long &, constant long &, constant float &,
-    constant long &, constant mesh_raw_metadata_float &, device const float *, device const float *,
-    device const long *, device const float *, constant heat_kernel_parameters_float &,
+    device const float *, device float *, constant int &, constant int &, constant float &,
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
+    device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<1> &, uint, uint, uint);

@@ -23,6 +23,7 @@ class besthea::mesh::uniform_spacetime_tensor_mesh_gpu {
     sc * d_node_coords;      // XYZXYZXYZXYZ...
     lo * d_element_nodes;    // 123123123123...
     sc * d_element_normals;  // XYZXYZXYZXYZ
+    int * d_element_nodes_int;  // 32-bit element node indices (Metal)
     float * d_element_areas_float;
     float * d_node_coords_float;
     float * d_element_normals_float;
@@ -35,6 +36,7 @@ class besthea::mesh::uniform_spacetime_tensor_mesh_gpu {
         d_node_coords( nullptr ),
         d_element_nodes( nullptr ),
         d_element_normals( nullptr ),
+        d_element_nodes_int( nullptr ),
         d_element_areas_float( nullptr ),
         d_node_coords_float( nullptr ),
         d_element_normals_float( nullptr ),

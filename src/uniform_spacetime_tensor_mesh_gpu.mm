@@ -37,7 +37,7 @@ besthea::mesh::uniform_spacetime_tensor_mesh_gpu::
 
     size_t areas_bytes = metadata.n_elems * sizeof( float );
     size_t coords_bytes = 3 * metadata.n_nodes * sizeof( float );
-    size_t nodes_bytes = 3 * metadata.n_elems * sizeof( lo );
+    size_t nodes_bytes = 3 * metadata.n_elems * sizeof( int );
     size_t normals_bytes = 3 * metadata.n_elems * sizeof( float );
 
     id<MTLBuffer> buf_areas = [device newBufferWithLength:std::max(areas_bytes, (size_t)64)
@@ -59,7 +59,7 @@ besthea::mesh::uniform_spacetime_tensor_mesh_gpu::
 
     curr_gpu_data.d_element_areas_float = (float*)[buf_areas contents];
     curr_gpu_data.d_node_coords_float = (float*)[buf_coords contents];
-    curr_gpu_data.d_element_nodes = (lo*)[buf_nodes contents];
+    curr_gpu_data.d_element_nodes_int = (int*)[buf_nodes contents];
     curr_gpu_data.d_element_normals_float = (float*)[buf_normals contents];
 
     // Compatibility pointers
@@ -79,9 +79,11 @@ besthea::mesh::uniform_spacetime_tensor_mesh_gpu::
       curr_gpu_data.d_node_coords_float[ i ] = static_cast< float >( host_nodes[ i ] );
     }
 
-    // Copy element node indices
+    // Copy element node indices (converted to 32-bit for the Metal buffers)
     const auto & host_elements = orig_mesh.get_spatial_surface_mesh( )->get_elements( );
-    std::copy( host_elements.begin( ), host_elements.end( ), curr_gpu_data.d_element_nodes );
+    for ( lo i = 0; i < 3 * metadata.n_elems; ++i ) {
+      curr_gpu_data.d_element_nodes_int[ i ] = static_cast< int >( host_elements[ i ] );
+    }
 
     // Convert host normals (double) to device float
     const auto & host_normals = orig_mesh.get_spatial_surface_mesh( )->get_normals( );

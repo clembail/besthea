@@ -312,7 +312,7 @@ if(BESTHEA_USE_METAL)
 
   add_custom_command(
     OUTPUT ${SHADER_METALLIB}
-    COMMAND ${METAL_COMPILER} -std=metal3.0 -c ${SHADER_SRC} -o ${SHADER_AIR}
+    COMMAND ${METAL_COMPILER} -std=metal3.0 -O3 -ffast-math -ffp-contract=fast -c ${SHADER_SRC} -o ${SHADER_AIR}
     COMMAND ${METALLIB_COMPILER} ${SHADER_AIR} -o ${SHADER_METALLIB}
     DEPENDS ${SHADER_SRC}
     COMMENT "Compiling Metal compute shaders to ${SHADER_METALLIB}"
