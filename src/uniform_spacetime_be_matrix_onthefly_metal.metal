@@ -42,13 +42,70 @@ struct mesh_raw_metadata_float {
     int n_nodes;
 };
 
-inline float metal_erf(float x) {
-    float sign = (x >= 0.0f) ? 1.0f : -1.0f;
-    float ax = metal::abs(x);
-    if (ax > 5.0f) return sign;
-    float t = 1.0f / (1.0f + 0.3275911f * ax);
+// Abramowitz & Stegun 7.1.26, specialized to u >= 0 and reusing exp(-u^2).
+// The caller already has u = |x-y| / (2 sqrt(tau) sqrt(alpha)) >= 0, so the
+// sign/abs handling of the general formulation is unnecessary, and the
+// Gaussian exp(-u^2) that the kernel also needs is passed in rather than
+// recomputed here.
+inline float metal_erf_nonneg(float u, float e) {
+    float t = 1.0f / (1.0f + 0.3275911f * u);
     float poly = t * (0.254829592f + t * (-0.284496736f + t * (1.421413741f + t * (-1.453152027f + t * 1.061405429f))));
-    return sign * (1.0f - poly * metal::exp(-ax * ax));
+    return 1.0f - poly * e;
+}
+
+// Per-temporal-block heat-kernel constants. They depend only on the temporal
+// block (ttau) and on the kernel parameters, so they are computed once per
+// (element pair, temporal block) rather than once per quadrature point.
+struct heat_kernel_delta_constants_float {
+    float ttau;                       //!< timestep * delta
+    float inv_2_sqrt_tau_sqrt_alpha;  //!< u       = norm * this
+    float inv_4_tau_alpha;            //!< exp arg = -norm^2 * this
+    float inv_4_pi_alpha;             //!< 1 / (4 pi alpha)
+    float inv_8_pi_alpha_2;           //!< 1 / (8 pi alpha^2)
+    float e_coeff_sl;                 //!< sqrt(ttau) / (4 pi alpha sqrt(pi) sqrt(alpha))
+    float inv_2_alpha;                //!< 1 / (2 alpha)
+    float e_coeff_dl;                 //!< sqrt(ttau) / (sqrt(pi) sqrt(alpha))
+    float inv_4_pi;                   //!< 1 / (4 pi)
+    float alpha;                      //!< kernel parameter
+    float alpha_2;                    //!< kernel parameter squared
+};
+
+inline void d_heat_kernel_delta_constants(
+    float ttau, constant heat_kernel_parameters_float & kp,
+    thread heat_kernel_delta_constants_float & dc)
+{
+    const float sqrt_ttau = metal::sqrt(ttau);
+    const float inv_4_pi_alpha = 1.0f / (4.0f * kp.pi * kp.alpha);
+    dc.ttau = ttau;
+    dc.inv_2_sqrt_tau_sqrt_alpha = 1.0f / (2.0f * sqrt_ttau * kp.sqrt_alpha);
+    dc.inv_4_tau_alpha = 1.0f / (4.0f * ttau * kp.alpha);
+    dc.inv_4_pi_alpha = inv_4_pi_alpha;
+    dc.inv_8_pi_alpha_2 = 1.0f / (8.0f * kp.pi * kp.alpha_2);
+    dc.e_coeff_sl = sqrt_ttau * inv_4_pi_alpha / (kp.sqrt_pi * kp.sqrt_alpha);
+    dc.inv_2_alpha = 1.0f / (2.0f * kp.alpha);
+    dc.e_coeff_dl = sqrt_ttau / (kp.sqrt_pi * kp.sqrt_alpha);
+    dc.inv_4_pi = 1.0f / (4.0f * kp.pi);
+    dc.alpha = kp.alpha;
+    dc.alpha_2 = kp.alpha_2;
+}
+
+// Shared per-quadrature-point evaluation: the distance norm, its reciprocal
+// and the two transcendental functions erf(u) and exp(-u^2), which share the
+// same argument u and hence the same Gaussian exponential.
+inline void d_heat_kernel_eval_core(
+    float xy1, float xy2, float xy3,
+    thread heat_kernel_delta_constants_float const & dc,
+    thread float * norm, thread float * inv_norm,
+    thread float * erf_value, thread float * exp_value)
+{
+    const float norm2 = xy1 * xy1 + xy2 * xy2 + xy3 * xy3;
+    const float n = metal::sqrt(norm2);
+    const float inv_n = 1.0f / n;
+    const float e = metal::exp(-norm2 * dc.inv_4_tau_alpha);
+    *norm = n;
+    *inv_norm = inv_n;
+    *erf_value = metal_erf_nonneg(n * dc.inv_2_sqrt_tau_sqrt_alpha, e);
+    *exp_value = e;
 }
 
 template<int quadr_order>
@@ -168,93 +225,58 @@ inline void d_triangles_to_geometry_000_trl_tg(
 }
 
 inline float d_sl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
-    float xy1, float xy2, float xy3, float ttau, float ttau_sqrt,
-    constant heat_kernel_parameters_float & kp)
+    float xy1, float xy2, float xy3,
+    thread heat_kernel_delta_constants_float const & dc)
 {
-    constexpr float _two = 2.0f;
-    constexpr float _four = 4.0f;
-    constexpr float _eight = 8.0f;
+    float norm, inv_norm, erf_value, exp_value;
+    d_heat_kernel_eval_core(xy1, xy2, xy3, dc, &norm, &inv_norm, &erf_value, &exp_value);
 
-    float norm = metal::sqrt(xy1 * xy1 + xy2 * xy2 + xy3 * xy3);
-    float sqrt_d = ttau_sqrt;
-
-    float value = (ttau / (_four * kp.pi * kp.alpha * norm)
-                   + norm / (_eight * kp.pi * kp.alpha_2))
-        * metal_erf(norm / (_two * sqrt_d * kp.sqrt_alpha))
-      + sqrt_d / (_four * kp.pi * kp.alpha * kp.sqrt_pi * kp.sqrt_alpha)
-        * metal::exp(-(norm * norm) / (_four * ttau * kp.alpha));
-
-    return value;
+    return (dc.ttau * dc.inv_4_pi_alpha * inv_norm + norm * dc.inv_8_pi_alpha_2) * erf_value
+         + dc.e_coeff_sl * exp_value;
 }
 
 inline float d_dl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
-    float xy1, float xy2, float xy3, device const float * ny, float ttau, float ttau_sqrt,
-    constant heat_kernel_parameters_float & kp)
+    float xy1, float xy2, float xy3, device const float * ny,
+    thread heat_kernel_delta_constants_float const & dc)
 {
-    constexpr float _one = 1.0f;
-    constexpr float _two = 2.0f;
-    constexpr float _four = 4.0f;
+    float norm, inv_norm, erf_value, exp_value;
+    d_heat_kernel_eval_core(xy1, xy2, xy3, dc, &norm, &inv_norm, &erf_value, &exp_value);
 
-    float norm2 = xy1 * xy1 + xy2 * xy2 + xy3 * xy3;
-    float norm = metal::sqrt(norm2);
     float dot = xy1 * ny[0] + xy2 * ny[1] + xy3 * ny[2];
-    float sqrt_d = ttau_sqrt;
 
-    float value = -dot / (_four * kp.pi * norm)
-               * ((_one / (_two * kp.alpha) - ttau / norm2)
-               * metal_erf(norm / (_two * sqrt_d * kp.sqrt_alpha))
-             + sqrt_d / (kp.sqrt_pi * kp.sqrt_alpha * norm)
-               * metal::exp(-norm2 / (_four * kp.alpha * ttau)));
-
-    return value;
+    return -dot * dc.inv_4_pi * inv_norm
+         * ((dc.inv_2_alpha - dc.ttau * inv_norm * inv_norm) * erf_value
+          + dc.e_coeff_dl * inv_norm * exp_value);
 }
 
 inline float d_adl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
-    float xy1, float xy2, float xy3, device const float * nx, float ttau, float ttau_sqrt,
-    constant heat_kernel_parameters_float & kp)
+    float xy1, float xy2, float xy3, device const float * nx,
+    thread heat_kernel_delta_constants_float const & dc)
 {
-    constexpr float _one = 1.0f;
-    constexpr float _two = 2.0f;
-    constexpr float _four = 4.0f;
+    float norm, inv_norm, erf_value, exp_value;
+    d_heat_kernel_eval_core(xy1, xy2, xy3, dc, &norm, &inv_norm, &erf_value, &exp_value);
 
-    float norm2 = xy1 * xy1 + xy2 * xy2 + xy3 * xy3;
-    float norm = metal::sqrt(norm2);
     float dot = -xy1 * nx[0] - xy2 * nx[1] - xy3 * nx[2];
-    float sqrt_d = ttau_sqrt;
 
-    float value = -dot / (_four * kp.pi * norm)
-               * ((_one / (_two * kp.alpha) - ttau / norm2)
-               * metal_erf(norm / (_two * sqrt_d * kp.sqrt_alpha))
-             + sqrt_d / (kp.sqrt_pi * kp.sqrt_alpha * norm)
-               * metal::exp(-norm2 / (_four * kp.alpha * ttau)));
-
-    return value;
+    return -dot * dc.inv_4_pi * inv_norm
+         * ((dc.inv_2_alpha - dc.ttau * inv_norm * inv_norm) * erf_value
+          + dc.e_coeff_dl * inv_norm * exp_value);
 }
 
 inline void d_hs_kernel_do_anti_tau_anti_t_and_anti_t_regular_in_time_regular_in_space(
     float xy1, float xy2, float xy3, device const float * nx, device const float * ny,
-    float ttau, float ttau_sqrt, thread float * value1, thread float * value2,
-    constant heat_kernel_parameters_float & kp)
+    thread heat_kernel_delta_constants_float const & dc,
+    thread float * value1, thread float * value2)
 {
-    constexpr float _two = 2.0f;
-    constexpr float _four = 4.0f;
-    constexpr float _eight = 8.0f;
+    float norm, inv_norm, erf_value, exp_value;
+    d_heat_kernel_eval_core(xy1, xy2, xy3, dc, &norm, &inv_norm, &erf_value, &exp_value);
 
     float dot = nx[0] * ny[0] + nx[1] * ny[1] + nx[2] * ny[2];
-    float norm = metal::sqrt(xy1 * xy1 + xy2 * xy2 + xy3 * xy3);
-    float sqrt_d = ttau_sqrt;
-    float erf_value = metal_erf(norm / (_two * sqrt_d * kp.sqrt_alpha));
-    float four_pi_alpha_norm = _four * kp.pi * kp.alpha * norm;
 
-    *value1 = (ttau / four_pi_alpha_norm + norm / (_eight * kp.pi * kp.alpha_2))
-        * erf_value
-      + sqrt_d / (_four * kp.pi * kp.alpha * kp.sqrt_pi * kp.sqrt_alpha)
-        * metal::exp(-(norm * norm) / (_four * ttau * kp.alpha));
+    *value1 = ((dc.ttau * dc.inv_4_pi_alpha * inv_norm + norm * dc.inv_8_pi_alpha_2) * erf_value
+             + dc.e_coeff_sl * exp_value) * dc.alpha_2;
 
-    *value2 = erf_value / four_pi_alpha_norm;
-
-    *value1 *= kp.alpha_2;
-    *value2 *= dot * kp.alpha;
+    *value2 = erf_value * dc.inv_4_pi_alpha * inv_norm * dot * dc.alpha;
 }
 
 inline void d_basis_tri_p1_evaluate_curl_00(
@@ -310,9 +332,8 @@ inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
 
     const float test_area = d_element_areas[i_test];
     const float trial_area = d_element_areas[i_trial];
@@ -326,7 +347,7 @@ inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            ttau, sqrt_ttau, kp) * w[i_quad];
+            dc) * w[i_quad];
     }
 
     float multiplier = test_area * trial_area;
@@ -345,9 +366,8 @@ inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
 
     device const float * ny = d_element_normals + 3 * i_trial;
 
@@ -369,7 +389,7 @@ inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            ny, ttau, sqrt_ttau, kp) * w[i_quad];
+            ny, dc) * w[i_quad];
         value1 += kernel_val * (1.0f - y1_ref[i_quad] - y2_ref[i_quad]);
         value2 += kernel_val * y1_ref[i_quad];
         value3 += kernel_val * y2_ref[i_quad];
@@ -393,9 +413,8 @@ inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
 
     device const float * nx = d_element_normals + 3 * i_test;
 
@@ -417,7 +436,7 @@ inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            nx, ttau, sqrt_ttau, kp) * w[i_quad];
+            nx, dc) * w[i_quad];
         value1 += kernel_val * (1.0f - x1_ref[i_quad] - x2_ref[i_quad]);
         value2 += kernel_val * x1_ref[i_quad];
         value3 += kernel_val * x2_ref[i_quad];
@@ -443,9 +462,8 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
     device const float * nx = d_element_normals + 3 * i_test;
     device const float * ny = d_element_normals + 3 * i_trial;
 
@@ -490,7 +508,7 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            nx, ny, ttau, sqrt_ttau, &kern1, &kern2, kp);
+            nx, ny, dc, &kern1, &kern2);
 
         phi1x = 1.0f - x1_ref[i_quad] - x2_ref[i_quad];
         phi1y = 1.0f - y1_ref[i_quad] - y2_ref[i_quad];
@@ -529,9 +547,8 @@ inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
 
     const float test_area = d_element_areas[i_test];
     const float trial_area = d_element_areas[i_trial];
@@ -545,7 +562,7 @@ inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            ttau, sqrt_ttau, kp) * w[i_quad];
+            dc) * w[i_quad];
     }
 
     float multiplier = test_area * trial_area;
@@ -564,9 +581,8 @@ inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
 
     device const float * ny = d_element_normals + 3 * i_trial;
 
@@ -588,7 +604,7 @@ inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            ny, ttau, sqrt_ttau, kp) * w[i_quad];
+            ny, dc) * w[i_quad];
         value1 += kernel_val * (1.0f - y1_ref[i_quad] - y2_ref[i_quad]);
         value2 += kernel_val * y1_ref[i_quad];
         value3 += kernel_val * y2_ref[i_quad];
@@ -612,9 +628,8 @@ inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
 
     device const float * nx = d_element_normals + 3 * i_test;
 
@@ -636,7 +651,7 @@ inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            nx, ttau, sqrt_ttau, kp) * w[i_quad];
+            nx, dc) * w[i_quad];
         value1 += kernel_val * (1.0f - x1_ref[i_quad] - x2_ref[i_quad]);
         value2 += kernel_val * x1_ref[i_quad];
         value3 += kernel_val * x2_ref[i_quad];
@@ -662,9 +677,8 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
     device const float * nx = d_element_normals + 3 * i_test;
     device const float * ny = d_element_normals + 3 * i_trial;
 
@@ -709,7 +723,7 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            nx, ny, ttau, sqrt_ttau, &kern1, &kern2, kp);
+            nx, ny, dc, &kern1, &kern2);
 
         phi1x = 1.0f - x1_ref[i_quad] - x2_ref[i_quad];
         phi1y = 1.0f - y1_ref[i_quad] - y2_ref[i_quad];
@@ -772,9 +786,8 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1_curls(
     constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
     constant heat_kernel_parameters_float & kp)
 {
-    float timestep = mesh_metadata.timestep;
-    float ttau = timestep * (float)delta;
-    float sqrt_ttau = metal::sqrt(ttau);
+    heat_kernel_delta_constants_float dc;
+    d_heat_kernel_delta_constants(mesh_metadata.timestep * (float)delta, kp, dc);
     device const float * nx = d_element_normals + 3 * i_test;
     device const float * ny = d_element_normals + 3 * i_trial;
 
@@ -801,7 +814,7 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1_curls(
             quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
             quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
             quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
-            nx, ny, ttau, sqrt_ttau, &kern1, &kern2, kp);
+            nx, ny, dc, &kern1, &kern2);
 
         phi1x = 1.0f - x1_ref[i_quad] - x2_ref[i_quad];
         phi1y = 1.0f - y1_ref[i_quad] - y2_ref[i_quad];
