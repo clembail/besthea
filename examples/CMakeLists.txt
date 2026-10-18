@@ -5,6 +5,7 @@ add_subdirectory(uniform_tensor_dirichlet)
 add_subdirectory(uniform_tensor_neumann)
 if(BESTHEA_USE_METAL)
   add_subdirectory(metal_onthefly_test)
+  add_subdirectory(metal_onthefly_bench)
 endif()
 
 install(FILES

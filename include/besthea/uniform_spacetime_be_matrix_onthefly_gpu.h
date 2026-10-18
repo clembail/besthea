@@ -74,12 +74,15 @@ class besthea::bem::onthefly::uniform_spacetime_be_matrix_onthefly_gpu
    * @param[in] order_singular Line quadrature order for regularized quadrature.
    * @param[in] order_regular Triangle quadrature order for regular quadrature.
    * @param[in] gpu_mesh Spacetime mesh resident on the GPU
-   * @param[in] gpu_kernel_version Version of GPU multiplication algorithm
+   * @param[in] gpu_kernel_version Version of GPU multiplication algorithm.
+   *   Version 2 is the one-test-element-per-threadgroup kernel; version 3 is
+   *   the tiled kernel (shared quadrature nodes in threadgroup memory), which
+   *   is the default as it is generally faster.
    */
   uniform_spacetime_be_matrix_onthefly_gpu( kernel_type & kernel,
     test_space_type & test_space, trial_space_type & trial_space,
     const besthea::mesh::uniform_spacetime_tensor_mesh_gpu & gpu_mesh_,
-    int order_singular = 4, int order_regular = 4, int gpu_kernel_version_ = 2,
+    int order_singular = 4, int order_regular = 4, int gpu_kernel_version_ = 3,
     bool loadbalancing_use_cpu_ = false );
 
   uniform_spacetime_be_matrix_onthefly_gpu(

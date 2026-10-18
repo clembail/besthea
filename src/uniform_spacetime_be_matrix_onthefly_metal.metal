@@ -114,6 +114,59 @@ inline void d_triangles_to_geometry_000_trl(
     }
 }
 
+// Serial variants that map a single element's reference quadrature nodes to
+// physical space and store them into threadgroup memory. They are used by the
+// version-3 tiled kernels, where the first tpbx (resp. tpby) threads of a
+// threadgroup each compute the nodes of one test (resp. trial) element and all
+// other threads reuse them.
+template<int quadr_order>
+inline void d_triangles_to_geometry_000_tst_tg(
+    int i_tst,
+    device const int * d_element_nodes,
+    device const float * d_node_coords,
+    threadgroup quadrature_nodes_raw_float<quadr_order> & out,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref)
+{
+    device const int * tst_elem_nodes = d_element_nodes + 3 * i_tst;
+    device const float * x1 = d_node_coords + 3 * tst_elem_nodes[0];
+    device const float * x2 = d_node_coords + 3 * tst_elem_nodes[1];
+    device const float * x3 = d_node_coords + 3 * tst_elem_nodes[2];
+
+    constant const float * x1_ref = quadr_ref._x1_ref;
+    constant const float * x2_ref = quadr_ref._x2_ref;
+
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i = 0; i < quadr_size; ++i) {
+        out.xs[i] = x1[0] + (x2[0] - x1[0]) * x1_ref[i] + (x3[0] - x1[0]) * x2_ref[i];
+        out.ys[i] = x1[1] + (x2[1] - x1[1]) * x1_ref[i] + (x3[1] - x1[1]) * x2_ref[i];
+        out.zs[i] = x1[2] + (x2[2] - x1[2]) * x1_ref[i] + (x3[2] - x1[2]) * x2_ref[i];
+    }
+}
+
+template<int quadr_order>
+inline void d_triangles_to_geometry_000_trl_tg(
+    int i_trl,
+    device const int * d_element_nodes,
+    device const float * d_node_coords,
+    threadgroup quadrature_nodes_raw_float<quadr_order> & out,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref)
+{
+    device const int * trl_elem_nodes = d_element_nodes + 3 * i_trl;
+    device const float * y1 = d_node_coords + 3 * trl_elem_nodes[0];
+    device const float * y2 = d_node_coords + 3 * trl_elem_nodes[1];
+    device const float * y3 = d_node_coords + 3 * trl_elem_nodes[2];
+
+    constant const float * y1_ref = quadr_ref._y1_ref;
+    constant const float * y2_ref = quadr_ref._y2_ref;
+
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i = 0; i < quadr_size; ++i) {
+        out.xs[i] = y1[0] + (y2[0] - y1[0]) * y1_ref[i] + (y3[0] - y1[0]) * y2_ref[i];
+        out.ys[i] = y1[1] + (y2[1] - y1[1]) * y1_ref[i] + (y3[1] - y1[1]) * y2_ref[i];
+        out.zs[i] = y1[2] + (y2[2] - y1[2]) * y1_ref[i] + (y3[2] - y1[2]) * y2_ref[i];
+    }
+}
+
 inline float d_sl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
     float xy1, float xy2, float xy3, float ttau, float ttau_sqrt,
     constant heat_kernel_parameters_float & kp)
@@ -425,6 +478,317 @@ inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
                 + test_curls[test_curl_offset + 2] * trial_curls[trial_curl_offset + 2];
         }
     }
+
+    for (int j = 0; j < 9; j++) values_out[j] = 0.0f;
+    thread float &value11 = values_out[0]; thread float &value12 = values_out[1]; thread float &value13 = values_out[2];
+    thread float &value21 = values_out[3]; thread float &value22 = values_out[4]; thread float &value23 = values_out[5];
+    thread float &value31 = values_out[6]; thread float &value32 = values_out[7]; thread float &value33 = values_out[8];
+
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i_quad = 0; i_quad < quadr_size; ++i_quad) {
+        d_hs_kernel_do_anti_tau_anti_t_and_anti_t_regular_in_time_regular_in_space(
+            quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
+            quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
+            quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
+            nx, ny, ttau, sqrt_ttau, &kern1, &kern2, kp);
+
+        phi1x = 1.0f - x1_ref[i_quad] - x2_ref[i_quad];
+        phi1y = 1.0f - y1_ref[i_quad] - y2_ref[i_quad];
+
+        value11 += (kern1 * curl_dot[0] + kern2 * phi1x            * phi1y)            * w[i_quad];
+        value21 += (kern1 * curl_dot[1] + kern2 * x1_ref[i_quad] * phi1y)            * w[i_quad];
+        value31 += (kern1 * curl_dot[2] + kern2 * x2_ref[i_quad] * phi1y)            * w[i_quad];
+        value12 += (kern1 * curl_dot[3] + kern2 * phi1x            * y1_ref[i_quad]) * w[i_quad];
+        value22 += (kern1 * curl_dot[4] + kern2 * x1_ref[i_quad] * y1_ref[i_quad]) * w[i_quad];
+        value32 += (kern1 * curl_dot[5] + kern2 * x2_ref[i_quad] * y1_ref[i_quad]) * w[i_quad];
+        value13 += (kern1 * curl_dot[6] + kern2 * phi1x            * y2_ref[i_quad]) * w[i_quad];
+        value23 += (kern1 * curl_dot[7] + kern2 * x1_ref[i_quad] * y2_ref[i_quad]) * w[i_quad];
+        value33 += (kern1 * curl_dot[8] + kern2 * x2_ref[i_quad] * y2_ref[i_quad]) * w[i_quad];
+    }
+
+    float multiplier = test_area * trial_area;
+    for (int j = 0; j < 9; j++) values_out[j] *= multiplier;
+}
+
+// ----------------------------------------------------------------------------
+// Local contribution helpers with threadgroup-resident trial quadrature nodes
+// (used by the version-3 tiled kernels). These are address-space overloads of
+// the functions above: the only difference is that the trial quadrature nodes
+// live in threadgroup memory so that they can be shared by a whole tile of
+// test elements.
+// ----------------------------------------------------------------------------
+
+template<int quadr_order>
+inline void d_get_local_contributions_treg_sreg_sl_p0_p0(
+    thread float * values_out,
+    int delta, int i_test, int i_trial,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
+    constant mesh_raw_metadata_float & mesh_metadata,
+    device const float * d_element_areas,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
+    constant heat_kernel_parameters_float & kp)
+{
+    float timestep = mesh_metadata.timestep;
+    float ttau = timestep * (float)delta;
+    float sqrt_ttau = metal::sqrt(ttau);
+
+    const float test_area = d_element_areas[i_test];
+    const float trial_area = d_element_areas[i_trial];
+
+    constant const float * w = quadr_ref._w;
+
+    float value = 0.0f;
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i_quad = 0; i_quad < quadr_size; ++i_quad) {
+        value += d_sl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
+            quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
+            quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
+            quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
+            ttau, sqrt_ttau, kp) * w[i_quad];
+    }
+
+    float multiplier = test_area * trial_area;
+    *values_out = value * multiplier;
+}
+
+template<int quadr_order>
+inline void d_get_local_contributions_treg_sreg_dl_p0_p1(
+    thread float * values_out,
+    int delta, int i_test, int i_trial,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
+    constant mesh_raw_metadata_float & mesh_metadata,
+    device const float * d_element_areas,
+    device const float * d_element_normals,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
+    constant heat_kernel_parameters_float & kp)
+{
+    float timestep = mesh_metadata.timestep;
+    float ttau = timestep * (float)delta;
+    float sqrt_ttau = metal::sqrt(ttau);
+
+    device const float * ny = d_element_normals + 3 * i_trial;
+
+    const float test_area = d_element_areas[i_test];
+    const float trial_area = d_element_areas[i_trial];
+
+    constant const float * w = quadr_ref._w;
+    constant const float * y1_ref = quadr_ref._y1_ref;
+    constant const float * y2_ref = quadr_ref._y2_ref;
+
+    float kernel_val;
+    float value1 = 0.0f;
+    float value2 = 0.0f;
+    float value3 = 0.0f;
+
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i_quad = 0; i_quad < quadr_size; ++i_quad) {
+        kernel_val = d_dl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
+            quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
+            quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
+            quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
+            ny, ttau, sqrt_ttau, kp) * w[i_quad];
+        value1 += kernel_val * (1.0f - y1_ref[i_quad] - y2_ref[i_quad]);
+        value2 += kernel_val * y1_ref[i_quad];
+        value3 += kernel_val * y2_ref[i_quad];
+    }
+
+    float multiplier = test_area * trial_area;
+    values_out[0] = value1 * multiplier;
+    values_out[1] = value2 * multiplier;
+    values_out[2] = value3 * multiplier;
+}
+
+template<int quadr_order>
+inline void d_get_local_contributions_treg_sreg_adl_p1_p0(
+    thread float * values_out,
+    int delta, int i_test, int i_trial,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
+    constant mesh_raw_metadata_float & mesh_metadata,
+    device const float * d_element_areas,
+    device const float * d_element_normals,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
+    constant heat_kernel_parameters_float & kp)
+{
+    float timestep = mesh_metadata.timestep;
+    float ttau = timestep * (float)delta;
+    float sqrt_ttau = metal::sqrt(ttau);
+
+    device const float * nx = d_element_normals + 3 * i_test;
+
+    const float test_area = d_element_areas[i_test];
+    const float trial_area = d_element_areas[i_trial];
+
+    constant const float * w = quadr_ref._w;
+    constant const float * x1_ref = quadr_ref._x1_ref;
+    constant const float * x2_ref = quadr_ref._x2_ref;
+
+    float kernel_val;
+    float value1 = 0.0f;
+    float value2 = 0.0f;
+    float value3 = 0.0f;
+
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i_quad = 0; i_quad < quadr_size; ++i_quad) {
+        kernel_val = d_adl_kernel_do_anti_tau_anti_t_regular_in_time_regular_in_space(
+            quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
+            quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
+            quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
+            nx, ttau, sqrt_ttau, kp) * w[i_quad];
+        value1 += kernel_val * (1.0f - x1_ref[i_quad] - x2_ref[i_quad]);
+        value2 += kernel_val * x1_ref[i_quad];
+        value3 += kernel_val * x2_ref[i_quad];
+    }
+
+    float multiplier = test_area * trial_area;
+    values_out[0] = value1 * multiplier;
+    values_out[1] = value2 * multiplier;
+    values_out[2] = value3 * multiplier;
+}
+
+template<int quadr_order>
+inline void d_get_local_contributions_treg_sreg_hs_p1_p1(
+    thread float * values_out,
+    int delta, int i_test, int i_trial,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
+    constant mesh_raw_metadata_float & mesh_metadata,
+    device const float * d_element_areas,
+    device const int * d_element_nodes,
+    device const float * d_node_coords,
+    device const float * d_element_normals,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
+    constant heat_kernel_parameters_float & kp)
+{
+    float timestep = mesh_metadata.timestep;
+    float ttau = timestep * (float)delta;
+    float sqrt_ttau = metal::sqrt(ttau);
+    device const float * nx = d_element_normals + 3 * i_test;
+    device const float * ny = d_element_normals + 3 * i_trial;
+
+    const float test_area = d_element_areas[i_test];
+    const float trial_area = d_element_areas[i_trial];
+
+    constant const float * w = quadr_ref._w;
+    constant const float * x1_ref = quadr_ref._x1_ref;
+    constant const float * x2_ref = quadr_ref._x2_ref;
+    constant const float * y1_ref = quadr_ref._y1_ref;
+    constant const float * y2_ref = quadr_ref._y2_ref;
+
+    float test_curls[9];
+    float trial_curls[9];
+    float phi1x, phi1y;
+    float kern1, kern2;
+    int test_curl_offset, trial_curl_offset;
+    float curl_dot[9];
+
+    d_basis_tri_p1_evaluate_curl_00(i_test, nx, false, test_curls, d_element_nodes, d_node_coords);
+    d_basis_tri_p1_evaluate_curl_00(i_trial, ny, true, trial_curls, d_element_nodes, d_node_coords);
+
+    for (int i_loc_test = 0; i_loc_test < 3; ++i_loc_test) {
+        test_curl_offset = 3 * i_loc_test;
+        for (int i_loc_trial = 0; i_loc_trial < 3; ++i_loc_trial) {
+            trial_curl_offset = 3 * i_loc_trial;
+            curl_dot[i_loc_trial * 3 + i_loc_test]
+                = test_curls[test_curl_offset]     * trial_curls[trial_curl_offset]
+                + test_curls[test_curl_offset + 1] * trial_curls[trial_curl_offset + 1]
+                + test_curls[test_curl_offset + 2] * trial_curls[trial_curl_offset + 2];
+        }
+    }
+
+    for (int j = 0; j < 9; j++) values_out[j] = 0.0f;
+    thread float &value11 = values_out[0]; thread float &value12 = values_out[1]; thread float &value13 = values_out[2];
+    thread float &value21 = values_out[3]; thread float &value22 = values_out[4]; thread float &value23 = values_out[5];
+    thread float &value31 = values_out[6]; thread float &value32 = values_out[7]; thread float &value33 = values_out[8];
+
+    constexpr int quadr_size = qo2qs(quadr_order);
+    for (int i_quad = 0; i_quad < quadr_size; ++i_quad) {
+        d_hs_kernel_do_anti_tau_anti_t_and_anti_t_regular_in_time_regular_in_space(
+            quadr_nodes_tst.xs[i_quad] - quadr_nodes_trl.xs[i_quad],
+            quadr_nodes_tst.ys[i_quad] - quadr_nodes_trl.ys[i_quad],
+            quadr_nodes_tst.zs[i_quad] - quadr_nodes_trl.zs[i_quad],
+            nx, ny, ttau, sqrt_ttau, &kern1, &kern2, kp);
+
+        phi1x = 1.0f - x1_ref[i_quad] - x2_ref[i_quad];
+        phi1y = 1.0f - y1_ref[i_quad] - y2_ref[i_quad];
+
+        value11 += (kern1 * curl_dot[0] + kern2 * phi1x            * phi1y)            * w[i_quad];
+        value21 += (kern1 * curl_dot[1] + kern2 * x1_ref[i_quad] * phi1y)            * w[i_quad];
+        value31 += (kern1 * curl_dot[2] + kern2 * x2_ref[i_quad] * phi1y)            * w[i_quad];
+        value12 += (kern1 * curl_dot[3] + kern2 * phi1x            * y1_ref[i_quad]) * w[i_quad];
+        value22 += (kern1 * curl_dot[4] + kern2 * x1_ref[i_quad] * y1_ref[i_quad]) * w[i_quad];
+        value32 += (kern1 * curl_dot[5] + kern2 * x2_ref[i_quad] * y1_ref[i_quad]) * w[i_quad];
+        value13 += (kern1 * curl_dot[6] + kern2 * phi1x            * y2_ref[i_quad]) * w[i_quad];
+        value23 += (kern1 * curl_dot[7] + kern2 * x1_ref[i_quad] * y2_ref[i_quad]) * w[i_quad];
+        value33 += (kern1 * curl_dot[8] + kern2 * x2_ref[i_quad] * y2_ref[i_quad]) * w[i_quad];
+    }
+
+    float multiplier = test_area * trial_area;
+    for (int j = 0; j < 9; j++) values_out[j] *= multiplier;
+}
+
+// Precompute the (delta independent) curl products for a test/trial element
+// pair. Used by the version-3 hypersingular kernel to avoid recomputing the
+// curls inside every temporal block.
+inline void d_hs_curl_dot_00(
+    int i_test, int i_trial,
+    device const int * d_element_nodes,
+    device const float * d_node_coords,
+    device const float * d_element_normals,
+    thread float * curl_dot)
+{
+    device const float * nx = d_element_normals + 3 * i_test;
+    device const float * ny = d_element_normals + 3 * i_trial;
+
+    float test_curls[9];
+    float trial_curls[9];
+    d_basis_tri_p1_evaluate_curl_00(i_test, nx, false, test_curls, d_element_nodes, d_node_coords);
+    d_basis_tri_p1_evaluate_curl_00(i_trial, ny, true, trial_curls, d_element_nodes, d_node_coords);
+
+    for (int i_loc_test = 0; i_loc_test < 3; ++i_loc_test) {
+        const int test_curl_offset = 3 * i_loc_test;
+        for (int i_loc_trial = 0; i_loc_trial < 3; ++i_loc_trial) {
+            const int trial_curl_offset = 3 * i_loc_trial;
+            curl_dot[i_loc_trial * 3 + i_loc_test]
+                = test_curls[test_curl_offset]     * trial_curls[trial_curl_offset]
+                + test_curls[test_curl_offset + 1] * trial_curls[trial_curl_offset + 1]
+                + test_curls[test_curl_offset + 2] * trial_curls[trial_curl_offset + 2];
+        }
+    }
+}
+
+template<int quadr_order>
+inline void d_get_local_contributions_treg_sreg_hs_p1_p1_curls(
+    thread float * values_out,
+    int delta, int i_test, int i_trial,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_tst,
+    threadgroup const quadrature_nodes_raw_float<quadr_order> & quadr_nodes_trl,
+    thread const float * curl_dot,
+    constant mesh_raw_metadata_float & mesh_metadata,
+    device const float * d_element_areas,
+    device const float * d_element_normals,
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref,
+    constant heat_kernel_parameters_float & kp)
+{
+    float timestep = mesh_metadata.timestep;
+    float ttau = timestep * (float)delta;
+    float sqrt_ttau = metal::sqrt(ttau);
+    device const float * nx = d_element_normals + 3 * i_test;
+    device const float * ny = d_element_normals + 3 * i_trial;
+
+    const float test_area = d_element_areas[i_test];
+    const float trial_area = d_element_areas[i_trial];
+
+    constant const float * w = quadr_ref._w;
+    constant const float * x1_ref = quadr_ref._x1_ref;
+    constant const float * x2_ref = quadr_ref._x2_ref;
+    constant const float * y1_ref = quadr_ref._y1_ref;
+    constant const float * y2_ref = quadr_ref._y2_ref;
+
+    float phi1x, phi1y;
+    float kern1, kern2;
 
     for (int j = 0; j < 9; j++) values_out[j] = 0.0f;
     thread float &value11 = values_out[0]; thread float &value12 = values_out[1]; thread float &value13 = values_out[2];
@@ -792,6 +1156,463 @@ kernel void k_apply_ver2_hs_p1_p1(
 }
 
 // ----------------------------------------------------------------------------
+// Version 3 Compute Kernels (2D tiles of tpbx test x tpby trial elements)
+// ----------------------------------------------------------------------------
+//
+// Each threadgroup handles tpbx test elements (thread index x) and iterates
+// over tiles of tpby trial elements (thread index y). The quadrature nodes of
+// both the test and the trial elements are held in threadgroup memory and
+// shared by the whole tile. This removes the large per-thread quadrature-node
+// array of the version-2 kernels (which otherwise spills to thread-local
+// memory) and therefore dramatically improves occupancy.
+//
+// The partial last tile is handled by masking: out-of-range test/trial
+// elements contribute zero (so they never affect the result) and out-of-range
+// trial elements are never read. The block rows are distributed over the
+// thread index y with stride tpby, so every block row is handled by exactly
+// one thread and no atomics are needed for the p0 test spaces.
+
+template<int quadr_order, int tpbx, int tpby>
+kernel void k_apply_ver3_sl_p0_p0(
+    device const float * x_perm [[buffer(0)]],
+    device float * y [[buffer(1)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
+    constant float & alpha [[buffer(4)]],
+    constant int & i_tst_begin [[buffer(5)]],
+    constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
+    device const float * d_element_areas [[buffer(7)]],
+    device const float * d_node_coords [[buffer(8)]],
+    device const int * d_element_nodes [[buffer(9)]],
+    device const float * d_element_normals [[buffer(10)]],
+    constant heat_kernel_parameters_float & kp [[buffer(11)]],
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
+    constant int & i_tst_count [[buffer(13)]],
+    uint2 tid2 [[thread_position_in_threadgroup]],
+    uint2 tpg [[threads_per_threadgroup]],
+    uint2 tgid2 [[threadgroup_position_in_grid]])
+{
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst[tpbx];
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_trl[tpby];
+    threadgroup float shmem_matrix_vals[tpby * tpbx];
+
+    const int tx = (int)tid2.x;
+    const int ty = (int)tid2.y;
+    (void)tpg;
+    const int tid = ty * tpbx + tx;
+
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + (int)tgid2.x * tpbx + tx;
+    const bool valid_tst = (i_tst - i_tst_begin) < i_tst_count;
+    const int row = i_tst;
+
+    if (tid < tpbx) {
+        int e = i_tst_begin + (int)tgid2.x * tpbx + tid;
+        if ((e - i_tst_begin) < i_tst_count) {
+            d_triangles_to_geometry_000_tst_tg<quadr_order>(
+                e, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst[tid], quadr_ref);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float val_prev;
+    float val_curr;
+    float val_next;
+
+    for (int tbase = 0; tbase < n_elems; tbase += tpby) {
+        if (tid < tpby) {
+            int e = tbase + tid;
+            if (e < n_elems) {
+                d_triangles_to_geometry_000_trl_tg<quadr_order>(
+                    e, d_element_nodes, d_node_coords, shmem_quadr_nodes_trl[tid], quadr_ref);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        const int i_trl = tbase + ty;
+        const bool valid_trl = (i_trl < n_elems);
+
+        val_curr = 0.0f;
+        val_next = 0.0f;
+
+        for (int delta = 0; delta < n_blocks; delta++) {
+            {
+                val_prev = val_curr;
+                val_curr = val_next;
+                if (valid_tst && valid_trl) {
+                    d_get_local_contributions_treg_sreg_sl_p0_p0<quadr_order>(&val_next,
+                        delta + 1, i_tst, i_trl, shmem_quadr_nodes_tst[tx], shmem_quadr_nodes_trl[ty],
+                        mesh_metadata, d_element_areas, quadr_ref, kp);
+                } else {
+                    val_next = 0.0f;
+                }
+                shmem_matrix_vals[ty * tpbx + tx] =
+                    ((i_tst == i_trl) ? 0.0f : (-val_prev + 2.0f * val_curr - val_next));
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+
+            {
+                const int max_block = n_blocks - delta;
+                for (int block = ty; block < max_block; block += tpby) {
+                    const int block_row = delta + block;
+                    const int block_col = block;
+                    float y_val = 0.0f;
+                    for (int j = 0; j < tpby; j++) {
+                        const int i_trl_j = tbase + j;
+                        if (i_trl_j < n_elems) {
+                            const float x_val = x_perm[block_col + ld_x_perm * i_trl_j];
+                            y_val += shmem_matrix_vals[j * tpbx + tx] * x_val;
+                        }
+                    }
+                    if (valid_tst) {
+                        y[block_row * ld_y + row] += alpha * y_val;
+                    }
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+        }
+    }
+}
+
+template<int quadr_order, int tpbx, int tpby>
+kernel void k_apply_ver3_dl_p0_p1(
+    device const float * x_perm [[buffer(0)]],
+    device float * y [[buffer(1)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
+    constant float & alpha [[buffer(4)]],
+    constant int & i_tst_begin [[buffer(5)]],
+    constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
+    device const float * d_element_areas [[buffer(7)]],
+    device const float * d_node_coords [[buffer(8)]],
+    device const int * d_element_nodes [[buffer(9)]],
+    device const float * d_element_normals [[buffer(10)]],
+    constant heat_kernel_parameters_float & kp [[buffer(11)]],
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
+    constant int & i_tst_count [[buffer(13)]],
+    uint2 tid2 [[thread_position_in_threadgroup]],
+    uint2 tpg [[threads_per_threadgroup]],
+    uint2 tgid2 [[threadgroup_position_in_grid]])
+{
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst[tpbx];
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_trl[tpby];
+    threadgroup float shmem_matrix_vals[3][tpby * tpbx];
+
+    const int tx = (int)tid2.x;
+    const int ty = (int)tid2.y;
+    (void)tpg;
+    const int tid = ty * tpbx + tx;
+
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + (int)tgid2.x * tpbx + tx;
+    const bool valid_tst = (i_tst - i_tst_begin) < i_tst_count;
+    const int row = i_tst;
+
+    if (tid < tpbx) {
+        int e = i_tst_begin + (int)tgid2.x * tpbx + tid;
+        if ((e - i_tst_begin) < i_tst_count) {
+            d_triangles_to_geometry_000_tst_tg<quadr_order>(
+                e, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst[tid], quadr_ref);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float vals_prev[3];
+    float vals_curr[3];
+    float vals_next[3];
+
+    for (int tbase = 0; tbase < n_elems; tbase += tpby) {
+        if (tid < tpby) {
+            int e = tbase + tid;
+            if (e < n_elems) {
+                d_triangles_to_geometry_000_trl_tg<quadr_order>(
+                    e, d_element_nodes, d_node_coords, shmem_quadr_nodes_trl[tid], quadr_ref);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        const int i_trl = tbase + ty;
+        const bool valid_trl = (i_trl < n_elems);
+
+        vals_curr[0] = 0.0f; vals_curr[1] = 0.0f; vals_curr[2] = 0.0f;
+        vals_next[0] = 0.0f; vals_next[1] = 0.0f; vals_next[2] = 0.0f;
+
+        for (int delta = 0; delta < n_blocks; delta++) {
+            {
+                vals_prev[0] = vals_curr[0]; vals_prev[1] = vals_curr[1]; vals_prev[2] = vals_curr[2];
+                vals_curr[0] = vals_next[0]; vals_curr[1] = vals_next[1]; vals_curr[2] = vals_next[2];
+                if (valid_tst && valid_trl) {
+                    d_get_local_contributions_treg_sreg_dl_p0_p1<quadr_order>(vals_next,
+                        delta + 1, i_tst, i_trl, shmem_quadr_nodes_tst[tx], shmem_quadr_nodes_trl[ty],
+                        mesh_metadata, d_element_areas, d_element_normals, quadr_ref, kp);
+                } else {
+                    vals_next[0] = 0.0f; vals_next[1] = 0.0f; vals_next[2] = 0.0f;
+                }
+                const bool diag = (i_tst == i_trl);
+                shmem_matrix_vals[0][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[0] + 2.0f * vals_curr[0] - vals_next[0]);
+                shmem_matrix_vals[1][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[1] + 2.0f * vals_curr[1] - vals_next[1]);
+                shmem_matrix_vals[2][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[2] + 2.0f * vals_curr[2] - vals_next[2]);
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+
+            {
+                const int max_block = n_blocks - delta;
+                for (int block = ty; block < max_block; block += tpby) {
+                    const int block_row = delta + block;
+                    const int block_col = block;
+                    float y_val = 0.0f;
+                    for (int j = 0; j < tpby; j++) {
+                        const int i_trl_j = tbase + j;
+                        if (i_trl_j < n_elems) {
+                            device const int * cols = d_element_nodes + 3 * i_trl_j;
+                            y_val += shmem_matrix_vals[0][j * tpbx + tx] * x_perm[block_col + ld_x_perm * cols[0]];
+                            y_val += shmem_matrix_vals[1][j * tpbx + tx] * x_perm[block_col + ld_x_perm * cols[1]];
+                            y_val += shmem_matrix_vals[2][j * tpbx + tx] * x_perm[block_col + ld_x_perm * cols[2]];
+                        }
+                    }
+                    if (valid_tst) {
+                        y[block_row * ld_y + row] += alpha * y_val;
+                    }
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+        }
+    }
+}
+
+template<int quadr_order, int tpbx, int tpby>
+kernel void k_apply_ver3_adl_p1_p0(
+    device const float * x_perm [[buffer(0)]],
+    device float * y [[buffer(1)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
+    constant float & alpha [[buffer(4)]],
+    constant int & i_tst_begin [[buffer(5)]],
+    constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
+    device const float * d_element_areas [[buffer(7)]],
+    device const float * d_node_coords [[buffer(8)]],
+    device const int * d_element_nodes [[buffer(9)]],
+    device const float * d_element_normals [[buffer(10)]],
+    constant heat_kernel_parameters_float & kp [[buffer(11)]],
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
+    constant int & i_tst_count [[buffer(13)]],
+    uint2 tid2 [[thread_position_in_threadgroup]],
+    uint2 tpg [[threads_per_threadgroup]],
+    uint2 tgid2 [[threadgroup_position_in_grid]])
+{
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst[tpbx];
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_trl[tpby];
+    threadgroup float shmem_matrix_vals[3][tpby * tpbx];
+
+    const int tx = (int)tid2.x;
+    const int ty = (int)tid2.y;
+    (void)tpg;
+    const int tid = ty * tpbx + tx;
+
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + (int)tgid2.x * tpbx + tx;
+    const bool valid_tst = (i_tst - i_tst_begin) < i_tst_count;
+    device const int * rows = d_element_nodes + 3 * i_tst;
+
+    if (tid < tpbx) {
+        int e = i_tst_begin + (int)tgid2.x * tpbx + tid;
+        if ((e - i_tst_begin) < i_tst_count) {
+            d_triangles_to_geometry_000_tst_tg<quadr_order>(
+                e, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst[tid], quadr_ref);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float vals_prev[3];
+    float vals_curr[3];
+    float vals_next[3];
+
+    for (int tbase = 0; tbase < n_elems; tbase += tpby) {
+        if (tid < tpby) {
+            int e = tbase + tid;
+            if (e < n_elems) {
+                d_triangles_to_geometry_000_trl_tg<quadr_order>(
+                    e, d_element_nodes, d_node_coords, shmem_quadr_nodes_trl[tid], quadr_ref);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        const int i_trl = tbase + ty;
+        const bool valid_trl = (i_trl < n_elems);
+
+        vals_curr[0] = 0.0f; vals_curr[1] = 0.0f; vals_curr[2] = 0.0f;
+        vals_next[0] = 0.0f; vals_next[1] = 0.0f; vals_next[2] = 0.0f;
+
+        for (int delta = 0; delta < n_blocks; delta++) {
+            {
+                vals_prev[0] = vals_curr[0]; vals_prev[1] = vals_curr[1]; vals_prev[2] = vals_curr[2];
+                vals_curr[0] = vals_next[0]; vals_curr[1] = vals_next[1]; vals_curr[2] = vals_next[2];
+                if (valid_tst && valid_trl) {
+                    d_get_local_contributions_treg_sreg_adl_p1_p0<quadr_order>(vals_next,
+                        delta + 1, i_tst, i_trl, shmem_quadr_nodes_tst[tx], shmem_quadr_nodes_trl[ty],
+                        mesh_metadata, d_element_areas, d_element_normals, quadr_ref, kp);
+                } else {
+                    vals_next[0] = 0.0f; vals_next[1] = 0.0f; vals_next[2] = 0.0f;
+                }
+                const bool diag = (i_tst == i_trl);
+                shmem_matrix_vals[0][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[0] + 2.0f * vals_curr[0] - vals_next[0]);
+                shmem_matrix_vals[1][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[1] + 2.0f * vals_curr[1] - vals_next[1]);
+                shmem_matrix_vals[2][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[2] + 2.0f * vals_curr[2] - vals_next[2]);
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+
+            {
+                const int max_block = n_blocks - delta;
+                for (int block = ty; block < max_block; block += tpby) {
+                    const int block_row = delta + block;
+                    const int block_col = block;
+                    float y_vals[3] = { 0.0f, 0.0f, 0.0f };
+                    for (int j = 0; j < tpby; j++) {
+                        const int i_trl_j = tbase + j;
+                        if (i_trl_j < n_elems) {
+                            const float x_val = x_perm[block_col + ld_x_perm * i_trl_j];
+                            y_vals[0] += shmem_matrix_vals[0][j * tpbx + tx] * x_val;
+                            y_vals[1] += shmem_matrix_vals[1][j * tpbx + tx] * x_val;
+                            y_vals[2] += shmem_matrix_vals[2][j * tpbx + tx] * x_val;
+                        }
+                    }
+                    if (valid_tst) {
+                        atomic_fetch_add_explicit((device atomic<float>*)&y[block_row * ld_y + rows[0]], alpha * y_vals[0], memory_order_relaxed);
+                        atomic_fetch_add_explicit((device atomic<float>*)&y[block_row * ld_y + rows[1]], alpha * y_vals[1], memory_order_relaxed);
+                        atomic_fetch_add_explicit((device atomic<float>*)&y[block_row * ld_y + rows[2]], alpha * y_vals[2], memory_order_relaxed);
+                    }
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+        }
+    }
+}
+
+template<int quadr_order, int tpbx, int tpby>
+kernel void k_apply_ver3_hs_p1_p1(
+    device const float * x_perm [[buffer(0)]],
+    device float * y [[buffer(1)]],
+    constant int & ld_x_perm [[buffer(2)]],
+    constant int & ld_y [[buffer(3)]],
+    constant float & alpha [[buffer(4)]],
+    constant int & i_tst_begin [[buffer(5)]],
+    constant mesh_raw_metadata_float & mesh_metadata [[buffer(6)]],
+    device const float * d_element_areas [[buffer(7)]],
+    device const float * d_node_coords [[buffer(8)]],
+    device const int * d_element_nodes [[buffer(9)]],
+    device const float * d_element_normals [[buffer(10)]],
+    constant heat_kernel_parameters_float & kp [[buffer(11)]],
+    constant quadrature_reference_raw_float<quadr_order> & quadr_ref [[buffer(12)]],
+    constant int & i_tst_count [[buffer(13)]],
+    uint2 tid2 [[thread_position_in_threadgroup]],
+    uint2 tpg [[threads_per_threadgroup]],
+    uint2 tgid2 [[threadgroup_position_in_grid]])
+{
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_tst[tpbx];
+    threadgroup quadrature_nodes_raw_float<quadr_order> shmem_quadr_nodes_trl[tpby];
+    threadgroup float shmem_matrix_vals[9][tpby * tpbx];
+
+    const int tx = (int)tid2.x;
+    const int ty = (int)tid2.y;
+    (void)tpg;
+    const int tid = ty * tpbx + tx;
+
+    const int n_blocks = mesh_metadata.n_temporal_elements;
+    const int n_elems = mesh_metadata.n_elems;
+    const int i_tst = i_tst_begin + (int)tgid2.x * tpbx + tx;
+    const bool valid_tst = (i_tst - i_tst_begin) < i_tst_count;
+    device const int * rows = d_element_nodes + 3 * i_tst;
+
+    if (tid < tpbx) {
+        int e = i_tst_begin + (int)tgid2.x * tpbx + tid;
+        if ((e - i_tst_begin) < i_tst_count) {
+            d_triangles_to_geometry_000_tst_tg<quadr_order>(
+                e, d_element_nodes, d_node_coords, shmem_quadr_nodes_tst[tid], quadr_ref);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float vals_prev[9];
+    float vals_curr[9];
+    float vals_next[9];
+
+    for (int tbase = 0; tbase < n_elems; tbase += tpby) {
+        if (tid < tpby) {
+            int e = tbase + tid;
+            if (e < n_elems) {
+                d_triangles_to_geometry_000_trl_tg<quadr_order>(
+                    e, d_element_nodes, d_node_coords, shmem_quadr_nodes_trl[tid], quadr_ref);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        const int i_trl = tbase + ty;
+        const bool valid_trl = (i_trl < n_elems);
+
+        float curl_dot[9];
+        if (valid_tst && valid_trl) {
+            d_hs_curl_dot_00(i_tst, i_trl, d_element_nodes, d_node_coords,
+                d_element_normals, curl_dot);
+        }
+
+        for (int j = 0; j < 9; j++) vals_curr[j] = 0.0f;
+        for (int j = 0; j < 9; j++) vals_next[j] = 0.0f;
+
+        for (int delta = 0; delta < n_blocks; delta++) {
+            {
+                for (int j = 0; j < 9; j++) vals_prev[j] = vals_curr[j];
+                for (int j = 0; j < 9; j++) vals_curr[j] = vals_next[j];
+                if (valid_tst && valid_trl) {
+                    d_get_local_contributions_treg_sreg_hs_p1_p1_curls<quadr_order>(vals_next,
+                        delta + 1, i_tst, i_trl, shmem_quadr_nodes_tst[tx], shmem_quadr_nodes_trl[ty], curl_dot,
+                        mesh_metadata, d_element_areas, d_element_normals, quadr_ref, kp);
+                } else {
+                    for (int j = 0; j < 9; j++) vals_next[j] = 0.0f;
+                }
+                const bool diag = (i_tst == i_trl);
+                for (int j = 0; j < 9; j++) {
+                    shmem_matrix_vals[j][ty * tpbx + tx] = diag ? 0.0f : (-vals_prev[j] + 2.0f * vals_curr[j] - vals_next[j]);
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+
+            {
+                const int max_block = n_blocks - delta;
+                for (int block = ty; block < max_block; block += tpby) {
+                    const int block_row = delta + block;
+                    const int block_col = block;
+                    float y_vals[3] = { 0.0f, 0.0f, 0.0f };
+                    for (int j = 0; j < tpby; j++) {
+                        const int i_trl_j = tbase + j;
+                        if (i_trl_j < n_elems) {
+                            device const int * cols = d_element_nodes + 3 * i_trl_j;
+                            float x_vals[3];
+                            x_vals[0] = x_perm[block_col + ld_x_perm * cols[0]];
+                            x_vals[1] = x_perm[block_col + ld_x_perm * cols[1]];
+                            x_vals[2] = x_perm[block_col + ld_x_perm * cols[2]];
+                            for (int r = 0; r < 3; r++) {
+                                for (int c = 0; c < 3; c++) {
+                                    y_vals[r] += shmem_matrix_vals[3 * r + c][j * tpbx + tx] * x_vals[c];
+                                }
+                            }
+                        }
+                    }
+                    if (valid_tst) {
+                        atomic_fetch_add_explicit((device atomic<float>*)&y[block_row * ld_y + rows[0]], alpha * y_vals[0], memory_order_relaxed);
+                        atomic_fetch_add_explicit((device atomic<float>*)&y[block_row * ld_y + rows[1]], alpha * y_vals[1], memory_order_relaxed);
+                        atomic_fetch_add_explicit((device atomic<float>*)&y[block_row * ld_y + rows[2]], alpha * y_vals[2], memory_order_relaxed);
+                    }
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Kernel Specializations
 // ----------------------------------------------------------------------------
 
@@ -894,3 +1715,39 @@ template [[host_name("k_apply_ver2_hs_p1_p1_qo1")]] kernel void k_apply_ver2_hs_
     constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *,
     device const int *, device const float *, constant heat_kernel_parameters_float &,
     constant quadrature_reference_raw_float<1> &, uint, uint, uint);
+
+// ----------------------------------------------------------------------------
+// Version 3 Kernel Specializations. The host_name encodes the tile shape
+// (_t<TX>x<TY>) so that the host can select among the instantiated tilings.
+// ----------------------------------------------------------------------------
+
+#define BESTHEA_VER3_SIG(QO) \
+    device const float *, device float *, constant int &, constant int &, constant float &, \
+    constant int &, constant mesh_raw_metadata_float &, device const float *, device const float *, \
+    device const int *, device const float *, constant heat_kernel_parameters_float &, \
+    constant quadrature_reference_raw_float<QO> &, constant int &, uint2, uint2, uint2
+
+#define BESTHEA_VER3_INST_T(BASE, QO, TX, TY) \
+    template [[host_name("k_apply_ver3_" #BASE "_qo" #QO "_t" #TX "x" #TY)]] \
+    kernel void k_apply_ver3_##BASE<QO, TX, TY>(BESTHEA_VER3_SIG(QO));
+
+#define BESTHEA_VER3_TILES(BASE, QO) \
+    BESTHEA_VER3_INST_T(BASE, QO, 4, 32) \
+    BESTHEA_VER3_INST_T(BASE, QO, 8, 32) \
+    BESTHEA_VER3_INST_T(BASE, QO, 2, 32) \
+    BESTHEA_VER3_INST_T(BASE, QO, 8, 16)
+
+#define BESTHEA_VER3_OP(BASE) \
+    BESTHEA_VER3_TILES(BASE, 5) \
+    BESTHEA_VER3_TILES(BASE, 4) \
+    BESTHEA_VER3_TILES(BASE, 2) \
+    BESTHEA_VER3_TILES(BASE, 1)
+
+BESTHEA_VER3_OP(sl_p0_p0)
+BESTHEA_VER3_OP(dl_p0_p1)
+BESTHEA_VER3_OP(adl_p1_p0)
+BESTHEA_VER3_OP(hs_p1_p1)
+
+#undef BESTHEA_VER3_SIG
+#undef BESTHEA_VER3_INST
+

@@ -31,9 +31,14 @@ int main(int argc, char ** argv) {
   if (argc > 2) {
     n_timesteps = std::atoi(argv[2]);
   }
+  int gpu_kernel_version = 3;
+  if (argc > 3) {
+    gpu_kernel_version = std::atoi(argv[3]);
+  }
   sc end_time = 1.0;
   sc alpha = 0.5;
 
+  std::cout << "Metal kernel version: " << gpu_kernel_version << "\n";
   std::cout << "Creating spacetime tensor mesh (timesteps: " << n_timesteps
             << ", end_time: " << end_time << ")...\n";
   uniform_spacetime_tensor_mesh st_mesh(surface_mesh, end_time, n_timesteps);
@@ -67,7 +72,7 @@ int main(int argc, char ** argv) {
     uniform_spacetime_be_matrix_onthefly_gpu<
       spacetime_heat_sl_kernel_antiderivative,
       uniform_spacetime_be_space<basis_tri_p0>,
-      uniform_spacetime_be_space<basis_tri_p0>> V_gpu(kernel_sl, space_p0, space_p0, st_mesh_gpu, 4, 4, 2);
+      uniform_spacetime_be_space<basis_tri_p0>> V_gpu(kernel_sl, space_p0, space_p0, st_mesh_gpu, 4, 4, gpu_kernel_version);
 
     lo dim_dom = V_cpu.get_dim_domain();
     lo dim_rng = V_cpu.get_dim_range();
@@ -122,7 +127,7 @@ int main(int argc, char ** argv) {
     uniform_spacetime_be_matrix_onthefly_gpu<
       spacetime_heat_dl_kernel_antiderivative,
       uniform_spacetime_be_space<basis_tri_p0>,
-      uniform_spacetime_be_space<basis_tri_p1>> K_gpu(kernel_dl, space_p0, space_p1, st_mesh_gpu, 4, 4, 2);
+      uniform_spacetime_be_space<basis_tri_p1>> K_gpu(kernel_dl, space_p0, space_p1, st_mesh_gpu, 4, 4, gpu_kernel_version);
 
     lo dim_dom = K_cpu.get_dim_domain();
     lo dim_rng = K_cpu.get_dim_range();
@@ -177,7 +182,7 @@ int main(int argc, char ** argv) {
     uniform_spacetime_be_matrix_onthefly_gpu<
       spacetime_heat_adl_kernel_antiderivative,
       uniform_spacetime_be_space<basis_tri_p1>,
-      uniform_spacetime_be_space<basis_tri_p0>> Kt_gpu(kernel_adl, space_p1, space_p0, st_mesh_gpu, 4, 4, 2);
+      uniform_spacetime_be_space<basis_tri_p0>> Kt_gpu(kernel_adl, space_p1, space_p0, st_mesh_gpu, 4, 4, gpu_kernel_version);
 
     lo dim_dom = Kt_cpu.get_dim_domain();
     lo dim_rng = Kt_cpu.get_dim_range();
@@ -232,7 +237,7 @@ int main(int argc, char ** argv) {
     uniform_spacetime_be_matrix_onthefly_gpu<
       spacetime_heat_hs_kernel_antiderivative,
       uniform_spacetime_be_space<basis_tri_p1>,
-      uniform_spacetime_be_space<basis_tri_p1>> D_gpu(kernel_hs, space_p1, space_p1, st_mesh_gpu, 4, 4, 2);
+      uniform_spacetime_be_space<basis_tri_p1>> D_gpu(kernel_hs, space_p1, space_p1, st_mesh_gpu, 4, 4, gpu_kernel_version);
 
     lo dim_dom = D_cpu.get_dim_domain();
     lo dim_rng = D_cpu.get_dim_range();

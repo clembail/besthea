@@ -48,6 +48,8 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -223,6 +225,29 @@ class MetalContext {
 template<class kernel_type, class test_space_type, class trial_space_type>
 struct metal_kernel_selector;
 
+// Resolve the version-3 tile shape. The defaults below are the tuned values;
+// the environment variable BESTHEA_VER3_TILE (e.g. "8x16") can override them
+// for benchmarking of alternative tilings (only the tiles instantiated in the
+// shader are valid).
+inline void resolve_ver3_tile(int default_tx, int default_ty, int & tx, int & ty) {
+  tx = default_tx;
+  ty = default_ty;
+  const char * env = std::getenv("BESTHEA_VER3_TILE");
+  if (env != nullptr) {
+    int a = 0, b = 0;
+    if (std::sscanf(env, "%dx%d", &a, &b) == 2 && a > 0 && b > 0) {
+      tx = a;
+      ty = b;
+    }
+  }
+}
+
+inline std::string ver3_kernel_name(
+  const char * base, int qo, int tx, int ty) {
+  return "k_apply_ver3_" + std::string(base) + "_qo" + std::to_string(qo)
+    + "_t" + std::to_string(tx) + "x" + std::to_string(ty);
+}
+
 template<>
 struct metal_kernel_selector<
   spacetime_heat_sl_kernel_antiderivative,
@@ -234,6 +259,11 @@ struct metal_kernel_selector<
   static int get_tpb(int qo) {
     return (qo == 1) ? 64 : 128;
   }
+  static std::string get_ver3_name(int qo, int tx, int ty) {
+    return ver3_kernel_name("sl_p0_p0", qo, tx, ty);
+  }
+  static int get_ver3_tpbx(int /*qo*/) { return 4; }
+  static int get_ver3_tpby(int /*qo*/) { return 32; }
 };
 
 template<>
@@ -247,6 +277,11 @@ struct metal_kernel_selector<
   static int get_tpb(int /*qo*/) {
     return 128;
   }
+  static std::string get_ver3_name(int qo, int tx, int ty) {
+    return ver3_kernel_name("dl_p0_p1", qo, tx, ty);
+  }
+  static int get_ver3_tpbx(int /*qo*/) { return 4; }
+  static int get_ver3_tpby(int /*qo*/) { return 32; }
 };
 
 template<>
@@ -260,6 +295,11 @@ struct metal_kernel_selector<
   static int get_tpb(int qo) {
     return (qo == 1) ? 64 : 128;
   }
+  static std::string get_ver3_name(int qo, int tx, int ty) {
+    return ver3_kernel_name("adl_p1_p0", qo, tx, ty);
+  }
+  static int get_ver3_tpbx(int /*qo*/) { return 4; }
+  static int get_ver3_tpby(int /*qo*/) { return 32; }
 };
 
 template<>
@@ -273,6 +313,11 @@ struct metal_kernel_selector<
   static int get_tpb(int /*qo*/) {
     return 64;
   }
+  static std::string get_ver3_name(int qo, int tx, int ty) {
+    return ver3_kernel_name("hs_p1_p1", qo, tx, ty);
+  }
+  static int get_ver3_tpbx(int /*qo*/) { return 4; }
+  static int get_ver3_tpby(int /*qo*/) { return 32; }
 };
 
 }  // anonymous namespace
@@ -306,12 +351,12 @@ uniform_spacetime_be_matrix_onthefly_gpu(kernel_type & kernel,
     }
   }
 
-  if (gpu_kernel_version != 2) {
+  if (gpu_kernel_version != 2 && gpu_kernel_version != 3) {
     if (besthea::settings::output_verbosity.warnings >= 1) {
       std::cerr << "BESTHEA Warning: gpu_kernel_version=" << gpu_kernel_version
-                << " requested. Defaulting to optimized Metal version 2.\n";
+                << " requested. Defaulting to optimized Metal version 3.\n";
     }
-    this->gpu_kernel_version = 2;
+    this->gpu_kernel_version = 3;
   }
 
   if (n_gpus > 0) {
@@ -372,9 +417,18 @@ init_gpu_data() {
 
   // Warm up the Metal library and compute pipeline so that the first apply()
   // does not pay the (one-time) shader compilation / pipeline creation cost.
-  const std::string kernel_name
-    = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>::
-      get_name(this->_order_regular);
+  using selector
+    = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>;
+  std::string kernel_name;
+  if (this->gpu_kernel_version == 3) {
+    int tx = 0;
+    int ty = 0;
+    resolve_ver3_tile(selector::get_ver3_tpbx(this->_order_regular),
+      selector::get_ver3_tpby(this->_order_regular), tx, ty);
+    kernel_name = selector::get_ver3_name(this->_order_regular, tx, ty);
+  } else {
+    kernel_name = selector::get_name(this->_order_regular);
+  }
   MetalContext::get().get_pipeline(kernel_name);
 }
 
@@ -545,8 +599,21 @@ apply_gpu_treg_sreg_begin(const block_vector_type & x,
   heat_kernel_parameters_float kp((float)this->_kernel->get_alpha());
   float alpha_f = (float)alpha;
 
-  std::string kernel_name = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>::get_name(this->_order_regular);
-  int tpbx = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>::get_tpb(this->_order_regular);
+  using selector
+    = metal_kernel_selector<kernel_type, test_space_type, trial_space_type>;
+  const bool use_ver3 = (this->gpu_kernel_version == 3);
+  std::string kernel_name;
+  int tpbx;
+  int tpby;
+  if (use_ver3) {
+    resolve_ver3_tile(selector::get_ver3_tpbx(this->_order_regular),
+      selector::get_ver3_tpby(this->_order_regular), tpbx, tpby);
+    kernel_name = selector::get_ver3_name(this->_order_regular, tpbx, tpby);
+  } else {
+    kernel_name = selector::get_name(this->_order_regular);
+    tpbx = selector::get_tpb(this->_order_regular);
+    tpby = 1;
+  }
   id<MTLComputePipelineState> pso = metal_ctx.get_pipeline(kernel_name);
 
   for (int gpu_idx = 0; gpu_idx < n_gpus; gpu_idx++) {
@@ -609,8 +676,16 @@ apply_gpu_treg_sreg_begin(const block_vector_type & x,
           break;
       }
 
-      MTLSize grid_size = MTLSizeMake(gpu_tst_elem_count, 1, 1);
-      MTLSize block_size = MTLSizeMake(tpbx, 1, 1);
+      MTLSize grid_size;
+      MTLSize block_size = MTLSizeMake(tpbx, tpby, 1);
+      if (use_ver3) {
+        int32_t i_tst_count_val = (int32_t)gpu_tst_elem_count;
+        [encoder setBytes:&i_tst_count_val length:sizeof(int32_t) atIndex:13];
+        lo n_tiles = (gpu_tst_elem_count + tpbx - 1) / tpbx;
+        grid_size = MTLSizeMake(n_tiles, 1, 1);
+      } else {
+        grid_size = MTLSizeMake(gpu_tst_elem_count, 1, 1);
+      }
       [encoder dispatchThreadgroups:grid_size threadsPerThreadgroup:block_size];
       [encoder endEncoding];
 
